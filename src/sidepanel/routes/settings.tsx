@@ -4,7 +4,9 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/lib/errors";
-import { getHostId, getNeverSave, removeNeverSave } from "@/lib/storage";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { getHostKeyPair } from "@/device/keys";
+import { getNeverSave, removeNeverSave } from "@/lib/storage";
 import { useDevice } from "@/store/device-store";
 import { PageHeader } from "../components/screen";
 
@@ -15,11 +17,11 @@ export function SettingsPage() {
   const lock = useDevice((s) => s.lock);
   const disconnect = useDevice((s) => s.disconnect);
   const [never, setNever] = useState<string[]>([]);
-  const [hostId, setHostId] = useState("");
+  const [hostKey, setHostKey] = useState("");
 
   useEffect(() => {
     void getNeverSave().then(setNever);
-    void getHostId().then(setHostId);
+    void getHostKeyPair().then((k) => setHostKey(bytesToHex(k.pub).slice(0, 16)));
   }, []);
 
   return (
@@ -39,7 +41,7 @@ export function SettingsPage() {
           <Row label="Ulanish" value={kind === "usb" ? "USB" : "Demo (simulyator)"} />
           <Row label="Firmware" value={status?.firmware ?? "—"} mono />
           <Row label="Yozuvlar" value={String(count)} />
-          <Row label="Bu kompyuter ID" value={hostId.slice(0, 8)} mono />
+          <Row label="Bu kompyuter kaliti" value={hostKey} mono />
         </Group>
 
         <div className="grid grid-cols-2 gap-2">

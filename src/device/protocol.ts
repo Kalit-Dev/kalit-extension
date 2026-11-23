@@ -1,15 +1,13 @@
 import { z } from "zod";
 
 /**
- * Kalit device protocol — PoC v0.1
+ * Kalit device protocol — v0.2 (docs/protocol-v0.2.md)
  *
- * Transport: NDJSON (har bir frame = bitta JSON qator + "\n").
+ * Transport: COBS kadrlari ichida Noise_XX shifrlangan CBOR. Bu fayl faqat mantiqiy xabarlarni
+ * ta'riflaydi (SecureTransport ularni {i,c,p} / {i,ok,r|e} / {ev,d} ko'rinishida tashiydi):
  *   → { id, cmd, params }
  *   ← { id, ok: true, result } | { id, ok: false, error }
  *   ← { event, data? }            (so'rovsiz xabarlar)
- *
- * TODO(v0.2): Noise_XX secure channel + CBOR. Hozircha USB kabel orqali ochiq JSON —
- * faqat development uchun.
  */
 
 export const CONFIRM_TIMEOUT_MS = 10_000;
@@ -27,6 +25,7 @@ export const ErrorCode = z.enum([
   "RATE_LIMITED",
   "NOT_TRUSTED",
   "INVALID_STATE",
+  "DEVICE_KEY_CHANGED",
   "INTERNAL",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -68,6 +67,8 @@ export type ConfirmInfo = z.infer<typeof ConfirmInfo>;
 
 export const AddEntryParams = z.object({
   origin: z.string().max(2048),
+  /** Registrable domain (extension tldts bilan hisoblaydi); qurilma uni origin host'ining suffiksi ekanini tekshiradi. */
+  site: z.string().min(3).max(256),
   username: z.string().min(1).max(256),
   title: z.string().max(64).optional(),
   /** Bo'sh bo'lsa — parolni qurilma o'zi generatsiya qiladi (hardware RNG). */
@@ -80,13 +81,9 @@ const Empty = z.object({});
 
 /** Buyruqlar ro'yxati — firmware bilan umumiy kontrakt. */
 export const Commands = {
-  // hostId — PoC uchun. v0.2'da host secure-channel static key orqali aniqlanadi.
-  GET_STATUS: { params: z.object({ hostId: z.string() }), result: Status, confirm: false },
-  PAIR_HOST: {
-    params: z.object({ hostId: z.string(), hostName: z.string().max(64) }),
-    result: Empty,
-    confirm: true,
-  },
+  // Host Noise static key orqali aniqlanadi (hostId yo'q).
+  GET_STATUS: { params: Empty, result: Status, confirm: false },
+  PAIR_HOST: { params: Empty, result: Empty, confirm: true },
   ONBOARD: {
     params: z.object({ masterPassword: z.string().min(12).max(128) }),
     result: Empty,

@@ -1,21 +1,21 @@
-import { siteOf } from "@/lib/domain";
-import {
-  CONFIRM_TIMEOUT_MS,
-  type ConfirmInfo,
-  type DeviceState,
-  type EntryMeta,
-  type ErrorCode,
-} from "./protocol";
-import type { Transport } from "./transport";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { decode, encode } from "./cbor";
+import { generateKeyPair, NoiseSession, pairingCode, type CipherState, type KeyPair } from "./noise";
+import { CONFIRM_TIMEOUT_MS, type ConfirmInfo, type DeviceState, type EntryMeta, type ErrorCode } from "./protocol";
+import { hostMatchesSite, originHost, siteValid } from "./site-rules";
+import type { RawTransport } from "./transport";
 
 /**
  * Qurilmasiz development uchun simulyator. Firmware mantiqini takrorlaydi:
- * PIN urinishlari, wipe, host pairing, 10 s tasdiq, 500 ms guard time.
+ * Noise_XX responder, host pin (≤4), PIN urinishlari, wipe (= zavod holati), 10 s tasdiq, 500 ms guard.
  * Ma'lumotlar faqat xotirada — panel yopilsa yo'qoladi.
  */
 
 const MAX_ATTEMPTS = 10;
+const MAX_HOSTS = 4;
+const MAX_ENTRIES = 32;
 const GUARD_MS = 500;
+const FIRMWARE = "mock-0.1.0";
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+";
 
 class Fault extends Error {
@@ -28,9 +28,9 @@ type ConfirmResult = "accept" | "reject" | "timeout";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Params = Record<string, any>;
 interface Request {
-  id: number;
-  cmd: string;
-  params?: Params;
+  i: number;
+  c: string;
+  p?: Params;
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -46,24 +46,44 @@ function generatePassword(length: number): string {
   return out.join("");
 }
 
-export class MockTransport implements Transport {
+export interface MockOptions {
+  /** Testlar uchun: KDF/ulanish kechikishlari va 500 ms guard o'chiriladi. */
+  fast?: boolean;
+}
+
+export class MockTransport implements RawTransport {
   readonly kind = "mock" as const;
 
-  private readonly frameListeners = new Set<(frame: unknown) => void>();
+  private readonly frameListeners = new Set<(frame: Uint8Array) => void>();
   private readonly closeListeners = new Set<() => void>();
+  private readonly fast: boolean;
 
+  // Qurilma holati (ulanishlar orasida saqlanadi)
+  private deviceKey: KeyPair = generateKeyPair();
   private state: DeviceState = "FACTORY";
   private master: string | null = null;
   private attempts = MAX_ATTEMPTS;
-  private readonly trusted = new Set<string>();
-  private sessionHost: string | null = null;
+  private readonly trusted = new Map<string, string>(); // host static key (hex) → nom
   private readonly vault = new Map<string, { meta: EntryMeta; password: string }>();
+
+  // Ulanish holati
+  private noise: NoiseSession | null = null;
+  private cipher: { send: CipherState; recv: CipherState } | null = null;
+  private hostKey: string | null = null;
+  private sas = "";
 
   private pending: ((r: ConfirmResult) => void) | null = null;
   private pendingSince = 0;
 
+  constructor({ fast = false }: MockOptions = {}) {
+    this.fast = fast;
+  }
+
   async open(): Promise<void> {
-    await wait(300);
+    this.noise = null;
+    this.cipher = null;
+    this.hostKey = null;
+    await this.delay(300);
   }
 
   async close(): Promise<void> {
@@ -71,11 +91,11 @@ export class MockTransport implements Transport {
     this.closeListeners.forEach((l) => l());
   }
 
-  async send(frame: unknown): Promise<void> {
-    void this.process(frame as Request);
+  async send(frame: Uint8Array): Promise<void> {
+    void this.receive(frame).catch(() => this.fail());
   }
 
-  onFrame(listener: (frame: unknown) => void): void {
+  onFrame(listener: (frame: Uint8Array) => void): void {
     this.frameListeners.add(listener);
   }
 
@@ -85,51 +105,84 @@ export class MockTransport implements Transport {
 
   /** Jismoniy tugmani simulyatsiya qiladi. */
   press(kind: "short" | "long"): void {
-    if (!this.pending || Date.now() - this.pendingSince < GUARD_MS) return;
+    if (!this.pending || Date.now() - this.pendingSince < (this.fast ? 0 : GUARD_MS)) return;
     this.pending(kind === "short" ? "accept" : "reject");
   }
 
-  private emit(frame: unknown) {
+  private delay(ms: number) {
+    return this.fast ? Promise.resolve() : wait(ms);
+  }
+
+  private fail() {
+    this.noise = null;
+    this.cipher = null;
+    this.pending?.("reject");
+    this.closeListeners.forEach((l) => l());
+  }
+
+  private emitRaw(frame: Uint8Array) {
     setTimeout(() => this.frameListeners.forEach((l) => l(frame)), 0);
   }
 
-  private async process({ id, cmd, params = {} }: Request) {
-    await wait(cmd === "UNLOCK" || cmd === "ONBOARD" ? 700 : 60); // KDF kechikishi
+  private emitSecure(msg: unknown) {
+    if (this.cipher) this.emitRaw(this.cipher.send.encrypt(encode(msg)));
+  }
+
+  private async receive(frame: Uint8Array) {
+    if (!this.noise) {
+      const noise = NoiseSession.responder(this.deviceKey);
+      noise.readMessage(frame);
+      this.emitRaw(noise.writeMessage(encode({ v: 1, fw: FIRMWARE, name: "Kalit Mock" })));
+      this.noise = noise;
+      return;
+    }
+    if (!this.noise.complete) {
+      const info = decode(this.noise.readMessage(frame)) as { v?: number; name?: string };
+      if (info.v !== 1) throw new Error("PROTOCOL");
+      this.hostKey = bytesToHex(this.noise.remoteStatic!);
+      this.sas = pairingCode(this.noise.handshakeHash);
+      this.cipher = this.noise.split();
+      this.hostName = String(info.name ?? "");
+      return;
+    }
+    const req = decode(this.cipher!.recv.decrypt(frame)) as Request;
+    await this.process(req);
+  }
+
+  private hostName = "";
+
+  private async process({ i, c, p = {} }: Request) {
+    await this.delay(c === "UNLOCK" || c === "ONBOARD" ? 700 : 60); // KDF kechikishi
     try {
-      this.emit({ id, ok: true, result: await this.handle(cmd, params) });
+      this.emitSecure({ i, ok: true, r: await this.handle(c, p) });
     } catch (e) {
-      this.emit({ id, ok: false, error: e instanceof Fault ? e.code : "INTERNAL" });
+      this.emitSecure({ i, ok: false, e: e instanceof Fault ? e.code : "INTERNAL" });
     }
   }
 
   private async handle(cmd: string, p: Params): Promise<unknown> {
+    const isTrusted = this.hostKey !== null && this.trusted.has(this.hostKey);
+    if (!isTrusted && cmd !== "GET_STATUS" && cmd !== "PAIR_HOST") throw new Fault("NOT_TRUSTED");
+
     switch (cmd) {
       case "GET_STATUS":
-        this.sessionHost = String(p.hostId);
-        return {
-          state: this.state,
-          firmware: "mock-0.1.0",
-          hostTrusted: this.trusted.has(this.sessionHost),
-          attemptsLeft: this.attempts,
-        };
+        return { state: this.state, firmware: FIRMWARE, hostTrusted: isTrusted, attemptsLeft: this.attempts };
 
       case "PAIR_HOST": {
-        const code = String(Math.floor(1000 + Math.random() * 9000));
-        await this.confirm({ action: "pair", code });
-        this.trusted.add(String(p.hostId));
-        this.sessionHost = String(p.hostId);
+        if (isTrusted) return {};
+        if (this.trusted.size >= MAX_HOSTS) throw new Fault("INVALID_STATE");
+        await this.confirm({ action: "pair", code: this.sas });
+        this.trusted.set(this.hostKey!, this.hostName);
         return {};
       }
 
       case "ONBOARD":
-        this.requireTrusted();
         if (this.state !== "FACTORY") throw new Fault("INVALID_STATE");
         this.master = String(p.masterPassword);
         this.state = "UNLOCKED";
         return {};
 
       case "UNLOCK":
-        this.requireTrusted();
         if (this.state === "FACTORY") throw new Fault("INVALID_STATE");
         if (this.state === "UNLOCKED") return {};
         // Hisoblagich tekshiruvdan OLDIN kamaytiriladi (power-cut hujumiga qarshi).
@@ -158,15 +211,18 @@ export class MockTransport implements Transport {
         const item = this.vault.get(String(p.id));
         if (!item) throw new Fault("NOT_FOUND");
         // Qurilma domenni o'zi tekshiradi — extension'ga ishonmaydi.
-        if (siteOf(String(p.origin)) !== item.meta.site) throw new Fault("ORIGIN_MISMATCH");
+        const host = originHost(String(p.origin));
+        if (!host || !hostMatchesSite(host, item.meta.site)) throw new Fault("ORIGIN_MISMATCH");
         await this.confirm({ action: "fill", site: item.meta.site, username: item.meta.username });
         return { username: item.meta.username, password: item.password };
       }
 
       case "ADD_ENTRY": {
         this.requireUnlocked();
-        const site = siteOf(String(p.origin));
-        if (!site) throw new Fault("INVALID_STATE");
+        if (this.vault.size >= MAX_ENTRIES) throw new Fault("INVALID_STATE");
+        const host = originHost(String(p.origin));
+        const site = String(p.site);
+        if (!host || !siteValid(site, host)) throw new Fault("ORIGIN_MISMATCH");
         await this.confirm({ action: "save", site, username: String(p.username) });
         const meta: EntryMeta = {
           id: crypto.randomUUID(),
@@ -197,34 +253,31 @@ export class MockTransport implements Transport {
   private confirm(info: Omit<ConfirmInfo, "timeoutMs">): Promise<void> {
     if (this.pending) return Promise.reject(new Fault("BUSY"));
     this.pendingSince = Date.now();
-    this.emit({ event: "CONFIRM_PENDING", data: { ...info, timeoutMs: CONFIRM_TIMEOUT_MS } });
+    this.emitSecure({ ev: "CONFIRM_PENDING", d: { ...info, timeoutMs: CONFIRM_TIMEOUT_MS } });
 
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => this.pending?.("timeout"), CONFIRM_TIMEOUT_MS);
       this.pending = (result) => {
         clearTimeout(timer);
         this.pending = null;
-        this.emit({ event: "CONFIRM_DONE" });
+        this.emitSecure({ ev: "CONFIRM_DONE" });
         if (result === "accept") resolve();
         else reject(new Fault(result === "timeout" ? "TIMEOUT" : "USER_REJECTED"));
       };
     });
   }
 
-  private requireTrusted() {
-    if (!this.sessionHost || !this.trusted.has(this.sessionHost)) throw new Fault("NOT_TRUSTED");
-  }
-
   private requireUnlocked() {
-    this.requireTrusted();
     if (this.state !== "UNLOCKED") throw new Fault("LOCKED");
   }
 
+  /** Zavod holati: vault, pin qilingan hostlar va qurilma kaliti yo'qoladi. */
   private wipe() {
     this.vault.clear();
     this.trusted.clear();
     this.master = null;
     this.attempts = MAX_ATTEMPTS;
     this.state = "FACTORY";
+    this.deviceKey = generateKeyPair();
   }
 }

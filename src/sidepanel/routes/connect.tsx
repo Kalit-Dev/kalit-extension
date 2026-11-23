@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SerialTransport } from "@/device/serial-transport";
 import type { TransportKind } from "@/device/transport";
-import { describeError } from "@/lib/errors";
+import { forgetDevice } from "@/device/keys";
+import { describeError, errorCode } from "@/lib/errors";
 import { useDevice } from "@/store/device-store";
 import { Screen } from "../components/screen";
 
@@ -18,7 +19,13 @@ export function ConnectPage() {
       await connect(kind);
     } catch (e) {
       if (e instanceof DOMException && e.name === "NotFoundError") return; // tanlov oynasi yopildi
-      toast.error("Ulanib bo'lmadi", { description: e instanceof DOMException ? e.message : describeError(e) });
+      toast.error("Ulanib bo'lmadi", {
+        description: e instanceof DOMException ? e.message : describeError(e),
+        action:
+          errorCode(e) === "DEVICE_KEY_CHANGED"
+            ? { label: "Qurilmani unutish", onClick: () => void forgetDevice() }
+            : undefined,
+      });
     }
   };
 

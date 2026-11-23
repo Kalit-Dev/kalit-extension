@@ -10,6 +10,7 @@ const MESSAGES: Record<string, string> = {
   RATE_LIMITED: "Juda ko'p so'rov — biroz kuting",
   NOT_TRUSTED: "Bu kompyuter qurilmaga ulanmagan",
   INVALID_STATE: "Qurilma bu amalga tayyor emas",
+  DEVICE_KEY_CHANGED: "Qurilma kaliti o'zgargan — boshqa qurilma yoki zavod holati. Ishonsangiz, qurilmani unuting va qayta ulang",
   DISCONNECTED: "Qurilma uzildi",
   PROTOCOL: "Qurilmadan noto'g'ri javob keldi",
   NO_PANEL: "Kalit paneli yopiq",

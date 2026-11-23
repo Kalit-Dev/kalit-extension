@@ -9,6 +9,7 @@ import { Screen } from "../components/screen";
 export function PairPage() {
   const pair = useDevice((s) => s.pair);
   const disconnect = useDevice((s) => s.disconnect);
+  const code = useDevice((s) => s.pairingCode);
   const [busy, setBusy] = useState(false);
 
   const start = async () => {
@@ -27,9 +28,14 @@ export function PairPage() {
     <Screen
       icon={Link2}
       title="Bu kompyuterni ulang"
-      description="Qurilma bu kompyuterni tanimaydi. Qurilma ekrani va shu yerda bir xil kod chiqadi — mos kelsa, qurilmadagi tugmani bosing."
+      description="Qurilma bu kompyuterni tanimaydi. Pastdagi kod qurilmada ham chiqadi (ekran yoki serial log) — mos kelsa, qurilmadagi tugmani bosing."
     >
       <div className="grid gap-2">
+        {code && (
+          <p className="rounded-md border bg-muted py-3 text-center font-mono text-2xl tracking-[0.4em]" aria-label="Ulash kodi">
+            {code}
+          </p>
+        )}
         <Button size="lg" disabled={busy} onClick={start}>
           Ulashni boshlash
         </Button>
