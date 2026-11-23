@@ -53,15 +53,16 @@ Map kalit tartibiga tayanmang (cborg deterministik tartib beradi, firmware boshq
 ### Buyruqlar
 
 `GET_STATUS`, `PAIR_HOST` (tugma), `ONBOARD`, `UNLOCK`, `LOCK`, `LIST`, `GET_CREDENTIAL` (tugma), `ADD_ENTRY` (tugma), `DELETE_ENTRY` (tugma). Parametrlar: `src/device/protocol.ts`.
-Hodisalar: `CONFIRM_PENDING {action, site?, username?, code?, timeoutMs}`, `CONFIRM_DONE`, `LOCKED`.
+Hodisalar: `CONFIRM_PENDING {action, site?, username?, code?, timeoutMs}`, `CONFIRM_DONE`, `LOCKED`, `CLOSED` (qurilma AEAD xatosi tufayli kanalni yopmoqda: host ham yopadi va qayta ulanadi).
 Xatolar: `USER_REJECTED TIMEOUT BUSY LOCKED BAD_PASSWORD WIPED NOT_FOUND ORIGIN_MISMATCH RATE_LIMITED NOT_TRUSTED INVALID_STATE DEVICE_KEY_CHANGED INTERNAL`.
 
 ## 5. Trust qoidalari (qurilma)
 
 - Noma'lum host static key faqat `GET_STATUS` va `PAIR_HOST` ni bajaradi; qolganiga `NOT_TRUSTED`.
-- `PAIR_HOST` tugma bilan tasdiqlanadi va host kaliti saqlanadi. Ko'pi bilan **4** host; to'lsa `INVALID_STATE`.
+- `PAIR_HOST` tugma bilan tasdiqlanadi va host kaliti saqlanadi. Ko'pi bilan **4** host; to'lsa tugma tasdig'idan keyin eng eskisi chiqariladi (UNPAIR yo'q).
 - Tasdiq: 10 s timeout (`TIMEOUT`), 500 ms guard (undan oldingi bosish e'tiborsiz), qisqa bosish = qabul, uzoq bosish = rad (`USER_REJECTED`).
 - **10 noto'g'ri master parol** -> `WIPED`: vault, pin qilingan hostlar va qurilma kaliti o'chadi, yangi kalit yaratiladi (zavod holati). Hisoblagich tekshiruvdan OLDIN kamayadi va doimiy xotiraga yoziladi.
+- `UNLOCK`/`ONBOARD` PBKDF2 tufayli sekin: host timeout'i 30 s. `UNLOCK` natijasi `WIPED` bo'lsa qurilma sessiyani yopadi va yangi qurilma kaliti yaratadi; host pin'ni unutadi.
 - Vault <= 32 yozuv; `site`/`username` <= 256, `title` <= 64 bayt, **va `site`+`username`+`title` yig'indisi <= 160 bayt** (LIST javobi 8 KiB kadrga sig'sin; oshsa `INVALID_STATE`). Qurilma `updatedAt` ni 0 qaytaradi (RTC yo'q).
 - Qurilma host nomini (msg3 `name`) <= 64 bayt deb tekshiradi. Origin host faqat `[a-z0-9.-]` bo'lishi mumkin (userinfo `@` rad etiladi).
 
