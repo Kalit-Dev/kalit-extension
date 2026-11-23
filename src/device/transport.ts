@@ -1,4 +1,18 @@
-export type TransportKind = "usb" | "mock";
+export type TransportKind = "usb" | "ble" | "tauri" | "mock";
+
+/**
+ * Xom bayt oqimi (framing yo'q): Web Serial porti, BLE GATT characteristic'lari, Tauri (Rust) backend kanali.
+ * Yangi transport faqat shuni amalga oshiradi; COBS/CRC kadrlash `FramedTransport` da (bir joyda).
+ */
+export interface ByteStream {
+  open(): Promise<void>;
+  close(): Promise<void>;
+  write(bytes: Uint8Array): Promise<void>;
+  /** Kelgan baytlar (ixtiyoriy bo'laklarda: BLE MTU, serial chunk). */
+  onData(listener: (bytes: Uint8Array) => void): void;
+  /** Oqim yopilganda (uzilish, close) bir marta chaqiriladi. */
+  onClose(listener: () => void): void;
+}
 
 /** Baytli kadrlarni tashiydi (COBS/CRC allaqachon yechilgan). USB, BLE, mock shu interfeysni amalga oshiradi. */
 export interface RawTransport {

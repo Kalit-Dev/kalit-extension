@@ -1,13 +1,15 @@
 # Kalit protocol v0.2
 
 Yagona manba (extension va firmware shu hujjatga mos). Mantiqiy xabar sxemalari: `src/device/protocol.ts` (zod).
-Kod: `cobs.ts`, `noise.ts`, `secure-transport.ts`, `site-rules.ts`; firmware: `kalit-firmware/lib/kalit_core`.
+Kod: `cobs.ts`, `framed-transport.ts`, `noise.ts`, `secure-transport.ts`, `site-rules.ts`; firmware: `kalit-firmware/lib/kalit_core`.
 
 ## 1. Qatlamlar
 
 ```
-mantiqiy xabar (zod)  ->  CBOR  ->  Noise transport (ChaChaPoly)  ->  CRC16 + COBS  ->  USB CDC (115200)
+mantiqiy xabar (zod)  ->  CBOR  ->  Noise transport (ChaChaPoly)  ->  CRC16 + COBS  ->  bayt oqimi (USB CDC 115200 | BLE GATT | Tauri backend)
 ```
+
+**Transport = bayt oqimi.** Protokol (§2 dan yuqorisi) transport turini bilmaydi: pastki qatlam faqat tartibli, ixtiyoriy bo'laklarga bo'lingan baytlarni tashiydi (`ByteStream`: `open`, `close`, `write`, `onData`, `onClose`). Kadrlash (§2) bitta joyda, `FramedTransport` da. Yangi transport (BLE, Tauri) faqat `ByteStream` yozadi. Xavfsizlik transportga tayanmaydi: Noise kanali (host kaliti pin, pairing kodi) har qanday oqimda bir xil ishlaydi, shuning uchun BLE kabi efirdagi kanalda ham transport darajasida ishonch talab qilinmaydi (birinchi pairing'da MITM'ga qarshi kodni solishtirish majburiy bo'lishi kerak).
 
 ## 2. Kadr (framing)
 

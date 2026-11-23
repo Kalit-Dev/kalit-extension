@@ -1,5 +1,5 @@
-import { encodeFrame, FrameReader, MAX_FRAME_BYTES } from "./cobs";
-import type { RawTransport } from "./transport";
+import { FramedTransport } from "./framed-transport";
+import type { ByteStream } from "./transport";
 
 /**
  * Qo'llab-quvvatlanadigan USB Vendor ID'lar:
@@ -9,34 +9,15 @@ const SUPPORTED_VIDS = [0x303a, 0x10c4, 0x1a86];
 /** DevKit'da port ochilganda DTR/RTS auto-reset bo'lishi mumkin — boot tugashini kutamiz. */
 const RESET_SETTLE_MS = 300;
 
-export class SerialTransport implements RawTransport {
-  readonly kind = "usb" as const;
-
+/** Web Serial porti: faqat xom baytlar (kadrlash FramedTransport'da). */
+class SerialStream implements ByteStream {
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  private readonly frameListeners = new Set<(frame: Uint8Array) => void>();
+  private readonly dataListeners = new Set<(bytes: Uint8Array) => void>();
   private readonly closeListeners = new Set<() => void>();
   private closed = false;
 
-  private constructor(private readonly port: SerialPort) {}
-
-  static isSupported(): boolean {
-    return typeof navigator !== "undefined" && "serial" in navigator;
-  }
-
-  /** Foydalanuvchi qurilmani tanlaydi (user gesture talab qilinadi). */
-  static async request(): Promise<SerialTransport> {
-    const port = await navigator.serial.requestPort({ filters: SUPPORTED_VIDS.map((usbVendorId) => ({ usbVendorId })) });
-    return new SerialTransport(port);
-  }
-
-  /** Avval ruxsat berilgan qurilmaga jim ulanish. */
-  static async fromGranted(): Promise<SerialTransport | null> {
-    if (!SerialTransport.isSupported()) return null;
-    const ports = await navigator.serial.getPorts();
-    const port = ports.find((p) => SUPPORTED_VIDS.includes(p.getInfo().usbVendorId ?? -1));
-    return port ? new SerialTransport(port) : null;
-  }
+  constructor(private readonly port: SerialPort) {}
 
   async open(): Promise<void> {
     await this.port.open({ baudRate: 115_200 });
@@ -51,13 +32,13 @@ export class SerialTransport implements RawTransport {
     await this.reader?.cancel().catch(() => undefined);
   }
 
-  async send(frame: Uint8Array): Promise<void> {
+  async write(bytes: Uint8Array): Promise<void> {
     if (!this.writer) throw new Error("Port not open");
-    await this.writer.write(encodeFrame(frame));
+    await this.writer.write(bytes);
   }
 
-  onFrame(listener: (frame: Uint8Array) => void): void {
-    this.frameListeners.add(listener);
+  onData(listener: (bytes: Uint8Array) => void): void {
+    this.dataListeners.add(listener);
   }
 
   onClose(listener: () => void): void {
@@ -65,13 +46,11 @@ export class SerialTransport implements RawTransport {
   }
 
   private async readLoop(): Promise<void> {
-    // ESP log'lari shu portdan chiqadi — FrameReader ularni CRC/COBS bilan tashlab yuboradi.
-    const frames = new FrameReader(MAX_FRAME_BYTES);
     try {
       while (this.reader) {
         const { value, done } = await this.reader.read();
         if (done) break;
-        for (const frame of frames.push(value)) this.frameListeners.forEach((l) => l(frame));
+        this.dataListeners.forEach((l) => l(value));
       }
     } catch {
       /* qurilma uzildi */
@@ -97,5 +76,29 @@ export class SerialTransport implements RawTransport {
     this.writer = null;
     await this.port.close().catch(() => undefined);
     this.closeListeners.forEach((l) => l());
+  }
+}
+
+export class SerialTransport extends FramedTransport {
+  private constructor(port: SerialPort) {
+    super("usb", new SerialStream(port));
+  }
+
+  static isSupported(): boolean {
+    return typeof navigator !== "undefined" && "serial" in navigator;
+  }
+
+  /** Foydalanuvchi qurilmani tanlaydi (user gesture talab qilinadi). */
+  static async request(): Promise<SerialTransport> {
+    const port = await navigator.serial.requestPort({ filters: SUPPORTED_VIDS.map((usbVendorId) => ({ usbVendorId })) });
+    return new SerialTransport(port);
+  }
+
+  /** Avval ruxsat berilgan qurilmaga jim ulanish. */
+  static async fromGranted(): Promise<SerialTransport | null> {
+    if (!SerialTransport.isSupported()) return null;
+    const ports = await navigator.serial.getPorts();
+    const port = ports.find((p) => SUPPORTED_VIDS.includes(p.getInfo().usbVendorId ?? -1));
+    return port ? new SerialTransport(port) : null;
   }
 }
