@@ -1,16 +1,20 @@
-import type { Transport } from "./transport";
+import { encodeFrame, FrameReader, MAX_FRAME_BYTES } from "./cobs";
+import type { RawTransport } from "./transport";
 
-/** Espressif USB Vendor ID (ESP32-S3 native USB CDC). */
-const ESPRESSIF_VID = 0x303a;
-const MAX_FRAME_BYTES = 16 * 1024;
+/**
+ * Qo'llab-quvvatlanadigan USB Vendor ID'lar:
+ * 0x303a — Espressif (ESP32-S3 native USB CDC), 0x10c4 — CP210x, 0x1a86 — CH340 (klassik DevKit USB-UART).
+ */
+const SUPPORTED_VIDS = [0x303a, 0x10c4, 0x1a86];
+/** DevKit'da port ochilganda DTR/RTS auto-reset bo'lishi mumkin — boot tugashini kutamiz. */
+const RESET_SETTLE_MS = 300;
 
-export class SerialTransport implements Transport {
+export class SerialTransport implements RawTransport {
   readonly kind = "usb" as const;
 
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  private readonly encoder = new TextEncoder();
-  private readonly frameListeners = new Set<(frame: unknown) => void>();
+  private readonly frameListeners = new Set<(frame: Uint8Array) => void>();
   private readonly closeListeners = new Set<() => void>();
   private closed = false;
 
@@ -22,7 +26,7 @@ export class SerialTransport implements Transport {
 
   /** Foydalanuvchi qurilmani tanlaydi (user gesture talab qilinadi). */
   static async request(): Promise<SerialTransport> {
-    const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: ESPRESSIF_VID }] });
+    const port = await navigator.serial.requestPort({ filters: SUPPORTED_VIDS.map((usbVendorId) => ({ usbVendorId })) });
     return new SerialTransport(port);
   }
 
@@ -30,7 +34,7 @@ export class SerialTransport implements Transport {
   static async fromGranted(): Promise<SerialTransport | null> {
     if (!SerialTransport.isSupported()) return null;
     const ports = await navigator.serial.getPorts();
-    const port = ports.find((p) => p.getInfo().usbVendorId === ESPRESSIF_VID);
+    const port = ports.find((p) => SUPPORTED_VIDS.includes(p.getInfo().usbVendorId ?? -1));
     return port ? new SerialTransport(port) : null;
   }
 
@@ -40,18 +44,19 @@ export class SerialTransport implements Transport {
     this.reader = this.port.readable.getReader();
     this.writer = this.port.writable.getWriter();
     void this.readLoop();
+    await new Promise((r) => setTimeout(r, RESET_SETTLE_MS));
   }
 
   async close(): Promise<void> {
     await this.reader?.cancel().catch(() => undefined);
   }
 
-  async send(frame: unknown): Promise<void> {
+  async send(frame: Uint8Array): Promise<void> {
     if (!this.writer) throw new Error("Port not open");
-    await this.writer.write(this.encoder.encode(`${JSON.stringify(frame)}\n`));
+    await this.writer.write(encodeFrame(frame));
   }
 
-  onFrame(listener: (frame: unknown) => void): void {
+  onFrame(listener: (frame: Uint8Array) => void): void {
     this.frameListeners.add(listener);
   }
 
@@ -60,28 +65,13 @@ export class SerialTransport implements Transport {
   }
 
   private async readLoop(): Promise<void> {
-    const decoder = new TextDecoder();
-    let buffer = "";
+    // ESP log'lari shu portdan chiqadi — FrameReader ularni CRC/COBS bilan tashlab yuboradi.
+    const frames = new FrameReader(MAX_FRAME_BYTES);
     try {
       while (this.reader) {
         const { value, done } = await this.reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          // Firmware log'lari ham shu portdan kelishi mumkin — faqat JSON qatorlar olinadi.
-          if (!line.startsWith("{")) continue;
-          try {
-            const frame: unknown = JSON.parse(line);
-            this.frameListeners.forEach((l) => l(frame));
-          } catch {
-            /* buzilgan frame — e'tiborsiz */
-          }
-        }
-        if (buffer.length > MAX_FRAME_BYTES) buffer = "";
+        for (const frame of frames.push(value)) this.frameListeners.forEach((l) => l(frame));
       }
     } catch {
       /* qurilma uzildi */
