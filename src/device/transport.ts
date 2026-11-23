@@ -1,6 +1,16 @@
 export type TransportKind = "usb" | "mock";
 
-/** Har qanday ulanish turi (USB, BLE, mock) shu interfeysni amalga oshiradi. */
+/** Baytli kadrlarni tashiydi (COBS/CRC allaqachon yechilgan). USB, BLE, mock shu interfeysni amalga oshiradi. */
+export interface RawTransport {
+  readonly kind: TransportKind;
+  open(): Promise<void>;
+  close(): Promise<void>;
+  send(frame: Uint8Array): Promise<void>;
+  onFrame(listener: (frame: Uint8Array) => void): void;
+  onClose(listener: () => void): void;
+}
+
+/** DeviceClient ishlatadigan obyekt darajasidagi transport (SecureTransport shuni beradi). */
 export interface Transport {
   readonly kind: TransportKind;
   open(): Promise<void>;
