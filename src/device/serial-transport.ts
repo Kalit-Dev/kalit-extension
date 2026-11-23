@@ -7,7 +7,7 @@ import type { RawTransport } from "./transport";
  */
 const SUPPORTED_VIDS = [0x303a, 0x10c4, 0x1a86];
 /** DevKit'da port ochilganda DTR/RTS auto-reset bo'lishi mumkin — boot tugashini kutamiz. */
-const RESET_SETTLE_MS = 300;
+const RESET_SETTLE_MS = 1200; // DevKit boot ~0.7 s (firmware -O3); erta yuborilgan msg1 yo'qoladi
 
 export class SerialTransport implements RawTransport {
   readonly kind = "usb" as const;

@@ -18,7 +18,11 @@ export function ConnectPage() {
     try {
       await connect(kind);
     } catch (e) {
-      if (e instanceof DOMException && e.name === "NotFoundError") return; // tanlov oynasi yopildi
+      if (e instanceof DOMException && e.name === "NotFoundError") {
+        // Side panel'da tanlash oynasi ochilmasligi mumkin: ruxsatni alohida tab'da olamiz.
+        void chrome.tabs.create({ url: chrome.runtime.getURL("grant.html") });
+        return;
+      }
       toast.error("Ulanib bo'lmadi", {
         description: e instanceof DOMException ? e.message : describeError(e),
         action:

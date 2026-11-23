@@ -11,6 +11,11 @@ startHub();
 // Avval ruxsat berilgan qurilma bo'lsa — jim ulanish.
 void useDevice.getState().connect("usb", { silent: true });
 
+// grant.html ruxsat olgach — jim ulanish.
+chrome.runtime.onMessage.addListener((m: { type?: string }) => {
+  if (m?.type === "KALIT_PORT_GRANTED") void useDevice.getState().connect("usb", { silent: true });
+});
+
 // Kompyuter ekrani qulflansa — qurilma ham qulflanadi.
 chrome.idle.onStateChanged.addListener((state) => {
   if (state === "locked" && useDevice.getState().phase === "unlocked") {

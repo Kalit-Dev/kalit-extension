@@ -4,6 +4,8 @@ import type { RawTransport, Transport } from "./transport";
 
 export const PROTOCOL_VERSION = 1;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 1500;
+/** DevKit port ochilganda reset bo'ladi (boot ~2.2 s): msg1 yo'qolishi mumkin, shuning uchun bir necha urinish. */
+const HANDSHAKE_ATTEMPTS = 4;
 
 export interface SecureTransportDeps {
   pinnedDeviceKey(): Promise<Uint8Array | null>;
@@ -75,7 +77,7 @@ export class SecureTransport implements Transport {
 
   private async handshake(): Promise<void> {
     const timeoutMs = this.deps.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < HANDSHAKE_ATTEMPTS; attempt++) {
       const noise = NoiseSession.initiator(this.identity);
       const msg2 = this.nextHandshakeFrame(timeoutMs);
       await this.inner.send(noise.writeMessage(new Uint8Array()));
