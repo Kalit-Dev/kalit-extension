@@ -8,7 +8,7 @@
   "action": { "default_title": "Kalit" },
   "side_panel": { "default_path": "sidepanel.html" },
   "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["sidePanel", "storage", "idle", "favicon"],
+  "permissions": ["sidePanel", "storage", "idle", "favicon", "offscreen"],
   "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "content_scripts": [
     {

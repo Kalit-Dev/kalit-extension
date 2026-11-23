@@ -2,16 +2,16 @@ import { siteOf } from "@/lib/domain";
 import { errorCode } from "@/lib/errors";
 import {
   HubRequest,
-  type ApplyMessage,
   type HubResult,
   type MatchesResponse,
   type PendingSaveResponse,
 } from "@/lib/messages";
 import { addNeverSave, getNeverSave } from "@/lib/storage";
-import { useDevice } from "@/store/device-store";
+import { useDevice } from "./device-store";
+import type { BackgroundRequest, TabRemovedEvent } from "./protocol";
 
 /**
- * Side panel — qurilma ulanishi egasi va xabarlar markazi (hub).
+ * Engine (offscreen hujjat) — xabarlar markazi (hub). Side panel yopiq bo'lsa ham ishlaydi.
  * Content script va overlay iframe'lar shu yerga murojaat qiladi.
  */
 
@@ -38,12 +38,10 @@ function takePending(tabId: number, site: string | null): PendingSave | null {
 }
 
 export async function applyToTab(tabId: number, username: string, password: string) {
-  const msg: ApplyMessage = { type: "kalit:apply", username, password };
-  try {
-    await chrome.tabs.sendMessage(tabId, msg, { frameId: 0 });
-  } catch {
-    throw "NO_PAGE";
-  }
+  // Offscreen hujjatda chrome.tabs yo'q — background orqali.
+  const req: BackgroundRequest = { type: "bg:apply", tabId, username, password };
+  const res = (await chrome.runtime.sendMessage(req).catch(() => undefined)) as { ok?: boolean } | undefined;
+  if (!res?.ok) throw "NO_PAGE";
 }
 
 async function handle(
@@ -126,5 +124,9 @@ export function startHub() {
     return true; // async javob
   });
 
-  chrome.tabs.onRemoved.addListener((tabId) => pendingSaves.delete(tabId));
+  chrome.runtime.onMessage.addListener((raw: Partial<TabRemovedEvent>, sender) => {
+    if (sender.id === chrome.runtime.id && !sender.tab && raw?.type === "bg:tab-removed" && typeof raw.tabId === "number") {
+      pendingSaves.delete(raw.tabId);
+    }
+  });
 }

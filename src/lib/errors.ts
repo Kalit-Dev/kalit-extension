@@ -13,6 +13,7 @@ const MESSAGES: Record<string, string> = {
   DEVICE_KEY_CHANGED: "Qurilma kaliti o'zgargan — boshqa qurilma yoki zavod holati. Ishonsangiz, qurilmani unuting va qayta ulang",
   DISCONNECTED: "Qurilma uzildi",
   PROTOCOL: "Qurilmadan noto'g'ri javob keldi",
+  NO_PORT: "USB qurilmaga ruxsat berilmagan",
   NO_PANEL: "Kalit paneli yopiq",
   NO_PAGE: "Bu sahifani to'ldirib bo'lmaydi",
   INTERNAL: "Kutilmagan xato",

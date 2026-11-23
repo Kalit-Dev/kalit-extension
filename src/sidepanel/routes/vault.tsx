@@ -9,7 +9,7 @@ import type { EntryMeta } from "@/device/protocol";
 import { useActiveTab } from "@/hooks/use-active-tab";
 import { describeError } from "@/lib/errors";
 import { useDevice } from "@/store/device-store";
-import { applyToTab } from "../hub";
+import { applyToTab } from "../apply";
 
 export function VaultPage() {
   const entries = useDevice((s) => s.entries);

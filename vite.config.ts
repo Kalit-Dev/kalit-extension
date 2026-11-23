@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => ({
         sidepanel: r("./sidepanel.html"),
         overlay: r("./overlay.html"),
         grant: r("./grant.html"),
+        offscreen: r("./offscreen.html"),
         background: r("./src/background/index.ts"),
       },
       output: {

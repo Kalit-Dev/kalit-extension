@@ -1,8 +1,8 @@
 import { SerialTransport } from "@/device/serial-transport";
+import { PORT_GRANTED } from "@/engine/protocol";
 
 // Web Serial tanlash oynasi side panel'da ishonchli ochilmaydi — ruxsat shu oddiy tab'da olinadi.
-// Ruxsat extension origin'iga tegishli, shuning uchun side panel keyin getPorts() bilan jim ulanadi.
-export const PORT_GRANTED = "KALIT_PORT_GRANTED";
+// Ruxsat extension origin'iga tegishli, shuning uchun engine keyin getPorts() bilan jim ulanadi.
 
 const msg = document.getElementById("msg")!;
 document.getElementById("btn")!.addEventListener("click", async () => {

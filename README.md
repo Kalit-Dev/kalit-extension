@@ -21,11 +21,17 @@ Sayt sahifasi
  └─ <iframe overlay.html> inline menu / "saqlansinmi?" (yopiq Shadow DOM, extension origin)
           │  chrome.runtime.sendMessage
           ▼
-Side panel (hub) ──── DeviceClient ──── SecureTransport ──── RawTransport ──── ESP32
+Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport ──── RawTransport ──── ESP32
  React UI + zustand    zod validatsiya   Noise_XX + CBOR        COBS kadrlar: USB (Web Serial) | Mock | (BLE keyin)
 ```
 
-- **Side panel — qurilma ulanishining egasi.** Web Serial MV3 service worker'da ishonchli emas.
+- **Engine (offscreen hujjat) — qurilma ulanishining egasi.** U brauzer ochiq ekan doim yashaydi, shuning uchun side panel
+  yopiq bo'lsa ham inline taklif va avto-to'ldirish ishlaydi. Web Serial MV3 service worker'da ishonchli emas (u ~30 s da
+  to'xtatiladi), side panel esa yopilganda ulanishni yo'qotardi.
+- **Side panel — faqat UI.** Engine holatining ko'zgusi (`store/device-store.ts`), amallar engine'ga RPC bilan boradi.
+- **Background** — engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
+- **USB ruxsati** `grant.html` (oddiy tab) orqali olinadi: tanlash oynasi side panel/offscreen'da ochilmaydi. Ruxsatdan keyin
+  engine o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
 - **Parollar faqat lahzada.** Extension'da faqat metadata (sayt, login) RAM'da turadi.
 - **Origin `sender.tab.url` dan olinadi**, payload'dan emas. Qurilma ham domenni o'zi tekshiradi.
 - **Har bir parol / saqlash / o'chirish / pairing — qurilmada tugma bilan tasdiq** (10 s, keyin reject).
@@ -35,8 +41,10 @@ Side panel (hub) ──── DeviceClient ──── SecureTransport ──�
 ```
 src/
   device/      protocol.ts (zod kontrakt), client.ts, serial-transport.ts, mock-transport.ts
-  store/       device-store.ts — holat mashinasi (disconnected → pairing → factory/locked → unlocked)
-  sidepanel/   hub.ts, router.tsx, routes/*, components/*
+  store/       device-store.ts — side panel ko'zgusi (holat mashinasi: engine/device-store.ts)
+  engine/      main.ts (offscreen entry, RPC), device-store.ts (holat mashinasi), hub.ts (content/overlay xabarlari), protocol.ts
+  sidepanel/   router.tsx, routes/*, components/* (faqat UI)
+  background/  engine'ni tirik tutadi, storage/tabs/idle ko'prigi
   overlay/     inline-menu.tsx, save-prompt.tsx (sayt ichidagi iframe)
   content/     forms.ts, overlay.ts, index.ts
   components/  ui/* (shadcn), field, password-input, brand
@@ -61,3 +69,13 @@ Testlar: `pnpm test` (vitest).
 - [ ] Multi-step login (email → keyingi sahifada parol)
 - [ ] BLE transport (Web Bluetooth / native host)
 - [ ] Production build'da demo rejimni o'chirish
+
+## Ulanishni toza tekshirish (QA)
+
+1. Brauzerda `*://extensions` → Kalit → **Remove**, so'ng `dist/` ni **Load unpacked** bilan qayta yuklang.
+2. Serial monitor/`pio` ochiq bo'lmasin. Qurilmani USB'ga ulang.
+3. Panelni oching → **USB orqali ulash** → ochilgan tab'da qurilmani tanlang. Panel ulanishi kerak.
+4. Master parol bilan oching. **Paneli yoping**, login formali sahifaga o'ting: maydonga fokus berganda taklif chiqishi kerak.
+5. Kabelni chiqarib qayta ulang: engine o'zi qayta ulanishi kerak (panelni oching — "Qulflangan"/"Ochiq").
+6. Brauzerni to'liq yoping va qayta oching: panel ochilmasdan ham ulanish tiklanishi kerak.
+7. Nosozlik bo'lsa: `*://extensions` → Kalit → **Inspect views: offscreen.html** → Console (`[kalit-engine]`, `[kalit-device]`).

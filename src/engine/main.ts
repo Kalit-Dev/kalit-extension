@@ -1,0 +1,95 @@
+import { DeviceError } from "@/device/client";
+import { errorCode } from "@/lib/errors";
+import { kvGet, kvSet } from "@/lib/kv";
+import { useDevice } from "./device-store";
+import { startHub } from "./hub";
+import {
+  isEngineRequest,
+  PORT_GRANTED,
+  STATE_EVENT,
+  type EngineReply,
+  type EngineRequest,
+  type EngineSnapshot,
+  type StateEvent,
+} from "./protocol";
+
+/**
+ * Engine: offscreen hujjatda yashaydi — brauzer ochiq ekan, side panel yopiq bo'lsa ham.
+ * Qurilma ulanishi (Web Serial), Noise sessiyasi, holat va content script hub'i shu yerda.
+ * Side panel faqat UI: holat ko'zgusini oladi va buyruqlarni shu yerga yuboradi.
+ */
+
+const snapshot = (): EngineSnapshot => {
+  const { kind, phase, status, entries, pending, pairingCode } = useDevice.getState();
+  return { kind, phase, status, entries, pending, pairingCode };
+};
+
+const broadcast = () => {
+  const event: StateEvent = { type: STATE_EVENT, state: snapshot() };
+  chrome.runtime.sendMessage(event).catch(() => undefined); // tinglovchi (side panel) bo'lmasligi mumkin
+};
+useDevice.subscribe(broadcast);
+
+type Handler = (...args: never[]) => unknown;
+
+async function run({ op, args }: EngineRequest): Promise<unknown> {
+  const s = useDevice.getState();
+  const handlers: Record<EngineRequest["op"], Handler> = {
+    getState: () => null,
+    connect: s.connect,
+    disconnect: s.disconnect,
+    refresh: s.refresh,
+    pair: s.pair,
+    onboard: s.onboard,
+    unlock: s.unlock,
+    lock: s.lock,
+    lockIfUnlocked: () => (s.phase === "unlocked" ? s.lock() : undefined),
+    getCredential: s.getCredential,
+    addEntry: s.addEntry,
+    deleteEntry: s.deleteEntry,
+    forgetDevice: s.forgetDevice,
+    press: s.press,
+  };
+  return (handlers[op] as (...a: unknown[]) => unknown)(...args);
+}
+
+chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
+  // Faqat extension'ning tab'siz sahifalari (side panel, background). Content script/overlay/grant tab emas.
+  if (sender.id !== chrome.runtime.id || sender.tab || !isEngineRequest(raw)) return;
+  run(raw).then(
+    (value): EngineReply => ({ ok: true, value: value ?? null, state: snapshot() }),
+    (e: unknown): EngineReply => ({
+      ok: false,
+      code: e instanceof DeviceError ? e.code : errorCode(e),
+      state: snapshot(),
+    }),
+  ).then(sendResponse);
+  return true; // async javob
+});
+
+// grant.html ruxsat olgach: avto-ulanishni yoqamiz va ulanamiz.
+const GRANT_URL = chrome.runtime.getURL("grant.html");
+chrome.runtime.onMessage.addListener((raw: { type?: string }, sender) => {
+  if (sender.id !== chrome.runtime.id || raw?.type !== PORT_GRANTED || !sender.url?.startsWith(GRANT_URL)) return;
+  void kvSet("autoConnect", true).then(autoConnect);
+});
+
+startHub();
+
+/** Avval ruxsat berilgan qurilmaga jim ulanish. Foydalanuvchi qo'lda uzgan bo'lsa — ulanmaydi. */
+async function autoConnect() {
+  if ((await kvGet("autoConnect")) === false) return;
+  try {
+    await useDevice.getState().connect("usb", { silent: true });
+  } catch (e) {
+    console.warn("[kalit-engine] auto-connect failed", e);
+  }
+}
+
+if (!("serial" in navigator)) {
+  console.error("[kalit-engine] navigator.serial yo'q: offscreen hujjatda Web Serial mavjud emas");
+} else {
+  // Qurilma kabeli qayta ulansa — o'zi qayta ulanadi.
+  navigator.serial.addEventListener("connect", () => void autoConnect());
+}
+void autoConnect();

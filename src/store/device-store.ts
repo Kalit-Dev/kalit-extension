@@ -1,30 +1,25 @@
 import { create } from "zustand";
-import { DeviceClient, DeviceError, type ClientErrorCode } from "@/device/client";
-import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/device/keys";
-import { MockTransport } from "@/device/mock-transport";
-import type { AddEntryParams, ConfirmInfo, Credential, EntryMeta, Status } from "@/device/protocol";
-import { SecureTransport } from "@/device/secure-transport";
-import { SerialTransport } from "@/device/serial-transport";
-import type { RawTransport, TransportKind } from "@/device/transport";
-import { siteOf } from "@/lib/domain";
+import { DeviceError, type ClientErrorCode } from "@/device/client";
+import type { AddEntryParams, Credential, EntryMeta, Status } from "@/device/protocol";
+import type { TransportKind } from "@/device/transport";
+import {
+  STATE_EVENT,
+  type BackgroundRequest,
+  type EngineOp,
+  type EngineReply,
+  type EngineSnapshot,
+  type PendingConfirm,
+  type Phase,
+  type StateEvent,
+} from "@/engine/protocol";
 
-export type Phase = "disconnected" | "connecting" | "pairing" | "factory" | "locked" | "unlocked";
+export type { PendingConfirm, Phase };
 
-export interface PendingConfirm extends ConfirmInfo {
-  expiresAt: number;
-}
-
-interface DeviceStore {
-  client: DeviceClient | null;
-  kind: TransportKind | null;
-  phase: Phase;
-  status: Status | null;
-  /** Faqat metadata, faqat RAM'da. Parollar bu yerda hech qachon bo'lmaydi. */
-  entries: EntryMeta[];
-  pending: PendingConfirm | null;
-  /** Noise handshake'dan hosil bo'lgan 4 xonali kod (ikkala tomonda bir xil). */
-  pairingCode: string | null;
-
+/**
+ * Side panel tomonidagi ko'zgu. Haqiqiy qurilma ulanishi va holat engine'da (offscreen hujjat);
+ * bu store engine holatini aks ettiradi va amallarni unga yuboradi.
+ */
+interface DeviceStore extends EngineSnapshot {
   connect(kind: TransportKind, opts?: { silent?: boolean }): Promise<void>;
   disconnect(): Promise<void>;
   refresh(): Promise<void>;
@@ -33,155 +28,79 @@ interface DeviceStore {
   unlock(masterPassword: string): Promise<void>;
   lock(): Promise<void>;
   getCredential(id: string, origin: string): Promise<Credential>;
-  /** `site` ni store o'zi hisoblaydi (tldts); qurilma uni origin'ga qarshi tekshiradi. */
   addEntry(params: Omit<AddEntryParams, "site">): Promise<EntryMeta>;
-  /** Pin qilingan qurilma kalitini unutadi (DEVICE_KEY_CHANGED dan keyin). */
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
   /** Faqat demo rejim: jismoniy tugmani simulyatsiya qiladi. */
   press(kind: "short" | "long"): void;
 }
 
-const initialState = {
-  client: null,
+const initial: EngineSnapshot = {
   kind: null,
-  phase: "disconnected" as Phase,
+  phase: "disconnected",
   status: null,
-  entries: [] as EntryMeta[],
+  entries: [],
   pending: null,
-  pairingCode: null as string | null,
+  pairingCode: null,
 };
 
-const SECURE_ERRORS = new Set(["DEVICE_KEY_CHANGED", "PROTOCOL", "TIMEOUT"]);
-const hostName = () => `Chrome · ${navigator.platform || "PC"}`.slice(0, 64);
+const ENGINE_WAIT_MS = 5_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Demo rejimdagi qurilma (tugmani simulyatsiya qilish uchun). */
-let mock: MockTransport | null = null;
+/** Engine hali yuklanmagan bo'lishi mumkin (brauzer endi ochilgan): background uni yaratadi, biz qayta urinamiz. */
+async function send(op: EngineOp, args: unknown[]): Promise<EngineReply> {
+  const deadline = Date.now() + ENGINE_WAIT_MS;
+  for (;;) {
+    try {
+      const reply = (await chrome.runtime.sendMessage({ target: "engine", op, args })) as EngineReply | undefined;
+      if (reply) return reply;
+    } catch (e) {
+      if (!(e instanceof Error) || !e.message.includes("Receiving end does not exist")) throw e;
+    }
+    if (Date.now() > deadline) throw new DeviceError("DISCONNECTED");
+    const ensure: BackgroundRequest = { type: "bg:ensure-engine" };
+    await chrome.runtime.sendMessage(ensure).catch(() => undefined);
+    await sleep(150);
+  }
+}
 
-export const useDevice = create<DeviceStore>()((set, get) => {
-  const client = () => {
-    const c = get().client;
-    if (!c) throw new DeviceError("DISCONNECTED");
-    return c;
-  };
+export const useDevice = create<DeviceStore>()((set) => {
+  const apply = (state: EngineSnapshot) => set(state);
+
+  async function call<T = void>(op: EngineOp, ...args: unknown[]): Promise<T> {
+    const reply = await send(op, args);
+    apply(reply.state);
+    if (!reply.ok) throw new DeviceError(reply.code as ClientErrorCode);
+    return reply.value as T;
+  }
 
   return {
-    ...initialState,
-
-    async connect(kind, { silent = false } = {}) {
-      if (get().client || get().phase === "connecting") return;
-      set({ phase: "connecting" });
-      let secure: SecureTransport | null = null;
-      try {
-        let raw: RawTransport | null;
-        if (kind === "mock") raw = mock = new MockTransport();
-        else raw = silent ? await SerialTransport.fromGranted() : await SerialTransport.request();
-        if (!raw) {
-          set({ phase: "disconnected" });
-          return;
-        }
-        secure = new SecureTransport(raw, await getHostKeyPair(), {
-          // Demo qurilma har safar yangi kalit yaratadi: uni pin qilsak haqiqiy qurilma DEVICE_KEY_CHANGED beradi.
-          pinnedDeviceKey: kind === "mock" ? async () => null : getPinnedDeviceKey,
-          pinDeviceKey: kind === "mock" ? async () => undefined : pinDeviceKey,
-          hostName: hostName(),
-        });
-        try {
-          await secure.open();
-        } catch (e) {
-          if (e instanceof Error && SECURE_ERRORS.has(e.message)) throw new DeviceError(e.message as ClientErrorCode);
-          throw e;
-        }
-
-        const c = new DeviceClient(secure);
-        c.onEvent((e) => {
-          if (e.event === "CONFIRM_PENDING") {
-            set({ pending: { ...e.data, expiresAt: Date.now() + e.data.timeoutMs } });
-          } else if (e.event === "CONFIRM_DONE") {
-            set({ pending: null });
-          } else if (e.event === "LOCKED") {
-            set({ phase: "locked", entries: [], pending: null });
-          }
-        });
-        secure.onClose(() => set({ ...initialState }));
-
-        set({ client: c, kind, pairingCode: secure.pairingCode });
-        await get().refresh();
-      } catch (e) {
-        await (get().client?.transport ?? secure)?.close().catch(() => undefined);
-        set({ ...initialState });
-        if (!silent) throw e;
-      }
-    },
-
-    async disconnect() {
-      await get().client?.transport.close();
-      set({ ...initialState });
-    },
-
-    async refresh() {
-      const status = await client().call("GET_STATUS", {});
-      set({ status });
-      if (!status.hostTrusted) return set({ phase: "pairing", entries: [] });
-      if (status.state === "FACTORY") return set({ phase: "factory", entries: [] });
-      if (status.state === "LOCKED") return set({ phase: "locked", entries: [] });
-      const { entries } = await client().call("LIST", {});
-      set({ phase: "unlocked", entries });
-    },
-
-    async pair() {
-      await client().call("PAIR_HOST", {});
-      await get().refresh();
-    },
-
-    async onboard(masterPassword) {
-      // Refresh bu yerda chaqirilmaydi: avval recovery phrase ekrani ko'rsatiladi.
-      await client().call("ONBOARD", { masterPassword });
-    },
-
-    async unlock(masterPassword) {
-      try {
-        await client().call("UNLOCK", { masterPassword });
-      } catch (e) {
-        if (e instanceof DeviceError && e.code === "WIPED") {
-          // Zavod holati: qurilma yangi kalit yaratdi. Eski pin'ni unutib ajratamiz, keyingi ulanish toza bo'ladi.
-          if (get().kind !== "mock") await forgetDevice();
-          await get().client?.transport.close().catch(() => undefined);
-          set({ ...initialState });
-        } else {
-          await get().refresh().catch(() => undefined); // urinishlar sonini yangilash
-        }
-        throw e;
-      }
-      await get().refresh().catch(() => undefined);
-    },
-
-    async lock() {
-      await client().call("LOCK", {});
-      set({ phase: "locked", entries: [], pending: null });
-    },
-
-    getCredential(id, origin) {
-      return client().call("GET_CREDENTIAL", { id, origin });
-    },
-
-    async addEntry(params) {
-      const site = siteOf(params.origin);
-      if (!site) throw new DeviceError("INVALID_STATE");
-      const { entry } = await client().call("ADD_ENTRY", { ...params, site });
-      set((s) => ({ entries: [...s.entries, entry] }));
-      return entry;
-    },
-
-    async deleteEntry(id) {
-      await client().call("DELETE_ENTRY", { id });
-      set((s) => ({ entries: s.entries.filter((e) => e.id !== id) }));
-    },
-
-    forgetDevice,
-
-    press(kind) {
-      if (get().kind === "mock") mock?.press(kind);
-    },
+    ...initial,
+    connect: (kind, opts) => call("connect", kind, opts),
+    disconnect: () => call("disconnect"),
+    refresh: () => call("refresh"),
+    pair: () => call("pair"),
+    onboard: (masterPassword) => call("onboard", masterPassword),
+    unlock: (masterPassword) => call("unlock", masterPassword),
+    lock: () => call("lock"),
+    getCredential: (id, origin) => call<Credential>("getCredential", id, origin),
+    addEntry: (params) => call<EntryMeta>("addEntry", params),
+    forgetDevice: () => call("forgetDevice"),
+    deleteEntry: (id) => call("deleteEntry", id),
+    press: (kind) => void call("press", kind).catch(() => undefined),
   };
 });
+
+export type { Status };
+
+/** Side panel ochilganda: engine holatini olish va yangilanishlarga obuna bo'lish. */
+export function startSync(): void {
+  chrome.runtime.onMessage.addListener((m: Partial<StateEvent>, sender) => {
+    if (sender.id === chrome.runtime.id && !sender.tab && m?.type === STATE_EVENT && m.state) {
+      useDevice.setState(m.state);
+    }
+  });
+  const pull = () => void send("getState", []).then((r) => useDevice.setState(r.state), () => undefined);
+  pull();
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && pull());
+}

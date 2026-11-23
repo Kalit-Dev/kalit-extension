@@ -16,13 +16,14 @@ export function ConnectPage() {
 
   const run = async (kind: TransportKind) => {
     try {
-      await connect(kind);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "NotFoundError") {
-        // Side panel'da tanlash oynasi ochilmasligi mumkin: ruxsatni alohida tab'da olamiz.
+      // Ruxsat berilgan port bor bo'lsa — jim ulanamiz. Yo'q bo'lsa — faqat shunda ruxsat tab'i ochiladi
+      // (Brave side panel'da tanlash oynasi chiqmaydi).
+      if (kind === "usb" && !(await SerialTransport.fromGranted())) {
         void chrome.tabs.create({ url: chrome.runtime.getURL("grant.html") });
         return;
       }
+      await connect(kind);
+    } catch (e) {
       toast.error("Ulanib bo'lmadi", {
         description: e instanceof DOMException ? e.message : describeError(e),
         action:
