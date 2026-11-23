@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Kalit — Hardware Password Manager",
+  "short_name": "Kalit",
+  "version": "0.1.0",
+  "description": "Parollaringiz qurilmada qoladi. Har bir kirish — qurilmada tasdiq bilan.",
+  "minimum_chrome_version": "116",
+  "action": { "default_title": "Kalit" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["sidePanel", "storage", "idle", "favicon"],
+  "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["overlay.html"],
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+    }
+  ]
+}
