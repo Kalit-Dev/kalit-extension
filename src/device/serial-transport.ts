@@ -71,6 +71,9 @@ export class SerialTransport implements RawTransport {
       while (this.reader) {
         const { value, done } = await this.reader.read();
         if (done) break;
+        if (!value.includes(0) && value.every((b) => b === 10 || b === 13 || (b >= 32 && b < 127))) {
+          console.debug("[kalit-device]", new TextDecoder().decode(value).trim()); // firmware log qatorlari
+        }
         for (const frame of frames.push(value)) this.frameListeners.forEach((l) => l(frame));
       }
     } catch {
