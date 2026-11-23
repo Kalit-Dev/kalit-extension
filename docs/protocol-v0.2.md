@@ -62,7 +62,8 @@ Xatolar: `USER_REJECTED TIMEOUT BUSY LOCKED BAD_PASSWORD WIPED NOT_FOUND ORIGIN_
 - `PAIR_HOST` tugma bilan tasdiqlanadi va host kaliti saqlanadi. Ko'pi bilan **4** host; to'lsa `INVALID_STATE`.
 - Tasdiq: 10 s timeout (`TIMEOUT`), 500 ms guard (undan oldingi bosish e'tiborsiz), qisqa bosish = qabul, uzoq bosish = rad (`USER_REJECTED`).
 - **10 noto'g'ri master parol** -> `WIPED`: vault, pin qilingan hostlar va qurilma kaliti o'chadi, yangi kalit yaratiladi (zavod holati). Hisoblagich tekshiruvdan OLDIN kamayadi va doimiy xotiraga yoziladi.
-- Vault <= 32 yozuv; `site`/`username` <= 256, `title` <= 64 belgi.
+- Vault <= 32 yozuv; `site`/`username` <= 256, `title` <= 64 bayt, **va `site`+`username`+`title` yig'indisi <= 160 bayt** (LIST javobi 8 KiB kadrga sig'sin; oshsa `INVALID_STATE`). Qurilma `updatedAt` ni 0 qaytaradi (RTC yo'q).
+- Qurilma host nomini (msg3 `name`) <= 64 bayt deb tekshiradi. Origin host faqat `[a-z0-9.-]` bo'lishi mumkin (userinfo `@` rad etiladi).
 
 ## 6. Domen qoidalari (`ADD_ENTRY.site`)
 

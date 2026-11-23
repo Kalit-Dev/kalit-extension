@@ -7,6 +7,7 @@ describe("site rules (qurilma PSL'siz tekshiradi)", () => {
     expect(originHost("http://localhost:3000")).toBe("localhost");
     expect(originHost("ftp://example.com")).toBeNull();
     expect(originHost("nonsense")).toBeNull();
+    expect(originHost("https://evil.com@good.com")).toBeNull(); // userinfo rad etiladi
   });
 
   it("siteValid needs 2+ labels and the site must be a suffix of the origin host", () => {

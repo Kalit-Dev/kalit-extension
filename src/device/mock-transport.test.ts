@@ -72,6 +72,20 @@ describe("MockTransport behind Noise", () => {
     expect(await code(client.call("ADD_ENTRY", { origin: "https://example.com", site: "com", username: "a" }))).toBe("ORIGIN_MISMATCH");
   });
 
+  it("refuses an entry whose site+username+title exceed the 160-byte metadata budget", async () => {
+    const { client } = await ready();
+    const longUser = "u".repeat(200);
+    expect(await code(client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: longUser }))).toBe("INVALID_STATE");
+  });
+
+  it("refuses the 33rd entry with INVALID_STATE", async () => {
+    const { client } = await ready();
+    for (let i = 0; i < 32; i++) {
+      await client.call("ADD_ENTRY", { origin: `https://s${i}.example.com`, site: `s${i}.example.com`, username: "u" });
+    }
+    expect(await code(client.call("ADD_ENTRY", { origin: "https://x.example.com", site: "x.example.com", username: "u" }))).toBe("INVALID_STATE");
+  });
+
   it("refuses a fifth host with INVALID_STATE", async () => {
     const mock = new MockTransport({ fast: true });
     for (let i = 0; i < 4; i++) {

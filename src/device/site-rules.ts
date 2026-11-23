@@ -5,7 +5,8 @@
  */
 
 export function originHost(origin: string): string | null {
-  const m = /^https?:\/\/([^/:?#]+)(?::\d+)?(?:[/?#]|$)/i.exec(origin);
+  // Faqat [a-z0-9.-]: userinfo (`evil.com@good.com`) va boshqa belgilar rad etiladi.
+  const m = /^https?:\/\/([a-z0-9.-]+)(?::\d+)?(?:[/?#]|$)/i.exec(origin);
   return m ? m[1]!.toLowerCase() : null;
 }
 

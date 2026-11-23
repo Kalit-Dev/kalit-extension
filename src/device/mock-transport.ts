@@ -14,6 +14,8 @@ import type { RawTransport } from "./transport";
 const MAX_ATTEMPTS = 10;
 const MAX_HOSTS = 4;
 const MAX_ENTRIES = 32;
+/** site+username+title (bayt) yig'indisi: LIST javobi 8 KiB kadrga sig'sin (firmware kMetaBudget bilan bir xil). */
+const META_BUDGET = 160;
 const GUARD_MS = 500;
 const FIRMWARE = "mock-0.1.0";
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+";
@@ -219,10 +221,14 @@ export class MockTransport implements RawTransport {
 
       case "ADD_ENTRY": {
         this.requireUnlocked();
-        if (this.vault.size >= MAX_ENTRIES) throw new Fault("INVALID_STATE");
         const host = originHost(String(p.origin));
         const site = String(p.site);
         if (!host || !siteValid(site, host)) throw new Fault("ORIGIN_MISMATCH");
+        const metaBytes = [site, String(p.username), p.title ? String(p.title) : ""].reduce(
+          (n, s) => n + new TextEncoder().encode(s).length,
+          0,
+        );
+        if (this.vault.size >= MAX_ENTRIES || metaBytes > META_BUDGET) throw new Fault("INVALID_STATE");
         await this.confirm({ action: "save", site, username: String(p.username) });
         const meta: EntryMeta = {
           id: crypto.randomUUID(),
