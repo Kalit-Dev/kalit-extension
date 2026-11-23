@@ -21,8 +21,8 @@ Sayt sahifasi
  └─ <iframe overlay.html> inline menu / "saqlansinmi?" (yopiq Shadow DOM, extension origin)
           │  chrome.runtime.sendMessage
           ▼
-Side panel (hub) ──── DeviceClient ──── Transport ──── ESP32-S3
- React UI + zustand    zod validatsiya   USB (Web Serial) | Mock | (BLE keyin)
+Side panel (hub) ──── DeviceClient ──── SecureTransport ──── RawTransport ──── ESP32
+ React UI + zustand    zod validatsiya   Noise_XX + CBOR        COBS kadrlar: USB (Web Serial) | Mock | (BLE keyin)
 ```
 
 - **Side panel — qurilma ulanishining egasi.** Web Serial MV3 service worker'da ishonchli emas.
@@ -45,23 +45,18 @@ src/
 
 Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
-## Firmware uchun protokol (PoC v0.1)
+## Protokol (v0.2)
 
-USB CDC, 115200, NDJSON — har bir qator bitta JSON:
+USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
+Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). Mantiqiy buyruqlar va sxemalar: `src/device/protocol.ts`.
+Firmware: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware). Klassik ESP32 DevKit (CP210x/CH340) ham qo'llab-quvvatlanadi.
 
-```jsonc
-→ {"id":1,"cmd":"GET_STATUS","params":{"hostId":"..."}}
-← {"id":1,"ok":true,"result":{"state":"LOCKED","firmware":"0.1.0","hostTrusted":true,"attemptsLeft":10}}
-← {"event":"CONFIRM_PENDING","data":{"action":"fill","site":"github.com","username":"ali","timeoutMs":10000}}
-← {"event":"CONFIRM_DONE"}
-← {"id":7,"ok":false,"error":"USER_REJECTED"}
-```
-
-Buyruqlar va sxemalar: `src/device/protocol.ts`. `{` bilan boshlanmagan qatorlar (ESP log) e'tiborsiz qoldiriladi.
+Testlar: `pnpm test` (vitest).
 
 ## Keyingi qadamlar (v0.2)
 
-- [ ] Noise_XX secure channel + CBOR (hozir ochiq JSON — faqat development)
+- [x] Noise_XX secure channel + CBOR
 - [ ] Parol o'zgarganini aniqlash → "Yangilansinmi?" oqimi
 - [ ] Multi-step login (email → keyingi sahifada parol)
 - [ ] BLE transport (Web Bluetooth / native host)
