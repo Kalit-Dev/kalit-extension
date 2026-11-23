@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   Commands,
   CONFIRM_TIMEOUT_MS,
+  KDF_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
   WireEvent,
   WireResponse,
@@ -50,7 +51,11 @@ export class DeviceClient {
     const paramsSchema: z.ZodType = def.params;
     const resultSchema: z.ZodType = def.result;
     const id = ++this.seq;
-    const timeoutMs = def.confirm ? CONFIRM_TIMEOUT_MS + 2_000 : REQUEST_TIMEOUT_MS;
+    const timeoutMs = def.confirm
+      ? CONFIRM_TIMEOUT_MS + 2_000
+      : cmd === "UNLOCK" || cmd === "ONBOARD"
+        ? KDF_TIMEOUT_MS
+        : REQUEST_TIMEOUT_MS;
 
     return new Promise<Result<K>>((resolve, reject) => {
       const timer = setTimeout(() => this.settle(id, new DeviceError("TIMEOUT")), timeoutMs);

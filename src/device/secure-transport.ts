@@ -135,6 +135,13 @@ export class SecureTransport implements Transport {
       this.finish();
       return;
     }
+    if (isRecord(msg) && msg.ev === "CLOSED") {
+      // Qurilma kanalni yopdi (nonce desinxron): host ham yopadi, UI qayta ulanadi.
+      this.phase = "closed";
+      void this.inner.close().catch(() => undefined);
+      this.finish();
+      return;
+    }
     const mapped = this.toClientFrame(msg);
     if (mapped) this.frameListeners.forEach((l) => l(mapped));
   }

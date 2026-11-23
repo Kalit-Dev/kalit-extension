@@ -12,6 +12,8 @@ import { z } from "zod";
 
 export const CONFIRM_TIMEOUT_MS = 10_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
+/** UNLOCK/ONBOARD: qurilmada PBKDF2 (ESP32'da soniyalar) — oddiy timeout yetmaydi. */
+export const KDF_TIMEOUT_MS = 30_000;
 
 export const ErrorCode = z.enum([
   "USER_REJECTED",

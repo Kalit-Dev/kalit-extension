@@ -122,12 +122,15 @@ export class MockTransport implements RawTransport {
     this.closeListeners.forEach((l) => l());
   }
 
-  private emitRaw(frame: Uint8Array) {
-    setTimeout(() => this.frameListeners.forEach((l) => l(frame)), 0);
+  private emitRaw(frame: Uint8Array, after?: () => void) {
+    setTimeout(() => {
+      this.frameListeners.forEach((l) => l(frame));
+      after?.();
+    }, 0);
   }
 
-  private emitSecure(msg: unknown) {
-    if (this.cipher) this.emitRaw(this.cipher.send.encrypt(encode(msg)));
+  private emitSecure(msg: unknown, after?: () => void) {
+    if (this.cipher) this.emitRaw(this.cipher.send.encrypt(encode(msg)), after);
   }
 
   private async receive(frame: Uint8Array) {
@@ -158,7 +161,16 @@ export class MockTransport implements RawTransport {
     try {
       this.emitSecure({ i, ok: true, r: await this.handle(c, p) });
     } catch (e) {
-      this.emitSecure({ i, ok: false, e: e instanceof Fault ? e.code : "INTERNAL" });
+      const code = e instanceof Fault ? e.code : "INTERNAL";
+      if (code === "WIPED") {
+        // Eski kalit bilan sessiya davom etmaydi: javob yetkazilgach kanal yopiladi.
+        const cipher = this.cipher;
+        this.noise = null;
+        this.cipher = null;
+        if (cipher) this.emitRaw(cipher.send.encrypt(encode({ i, ok: false, e: code })), () => this.closeListeners.forEach((l) => l()));
+      } else {
+        this.emitSecure({ i, ok: false, e: code });
+      }
     }
   }
 
@@ -172,8 +184,8 @@ export class MockTransport implements RawTransport {
 
       case "PAIR_HOST": {
         if (isTrusted) return {};
-        if (this.trusted.size >= MAX_HOSTS) throw new Fault("INVALID_STATE");
         await this.confirm({ action: "pair", code: this.sas });
+        if (this.trusted.size >= MAX_HOSTS) this.trusted.delete(this.trusted.keys().next().value!); // eng eskisi chiqariladi
         this.trusted.set(this.hostKey!, this.hostName);
         return {};
       }

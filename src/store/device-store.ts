@@ -81,8 +81,9 @@ export const useDevice = create<DeviceStore>()((set, get) => {
           return;
         }
         secure = new SecureTransport(raw, await getHostKeyPair(), {
-          pinnedDeviceKey: getPinnedDeviceKey,
-          pinDeviceKey,
+          // Demo qurilma har safar yangi kalit yaratadi: uni pin qilsak haqiqiy qurilma DEVICE_KEY_CHANGED beradi.
+          pinnedDeviceKey: kind === "mock" ? async () => null : getPinnedDeviceKey,
+          pinDeviceKey: kind === "mock" ? async () => undefined : pinDeviceKey,
           hostName: hostName(),
         });
         try {
@@ -141,10 +142,18 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     async unlock(masterPassword) {
       try {
         await client().call("UNLOCK", { masterPassword });
-      } finally {
-        // Urinishlar sonini yangilash yoki WIPED bo'lsa FACTORY'ga o'tish.
-        await get().refresh().catch(() => undefined);
+      } catch (e) {
+        if (e instanceof DeviceError && e.code === "WIPED") {
+          // Zavod holati: qurilma yangi kalit yaratdi. Eski pin'ni unutib ajratamiz, keyingi ulanish toza bo'ladi.
+          if (get().kind !== "mock") await forgetDevice();
+          await get().client?.transport.close().catch(() => undefined);
+          set({ ...initialState });
+        } else {
+          await get().refresh().catch(() => undefined); // urinishlar sonini yangilash
+        }
+        throw e;
       }
+      await get().refresh().catch(() => undefined);
     },
 
     async lock() {

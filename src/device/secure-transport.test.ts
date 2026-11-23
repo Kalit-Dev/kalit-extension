@@ -175,4 +175,16 @@ describe("SecureTransport", () => {
     expect(lb.closed).toBe(true);
     expect(frames).toEqual([]);
   });
+
+  it("closes the channel when the device announces CLOSED", async () => {
+    const lb = loopback();
+    const t = new SecureTransport(lb.raw, generateKeyPair(), deps().deps);
+    let closed = 0;
+    t.onClose(() => closed++);
+    await t.open();
+    lb.deviceSend({ ev: "CLOSED" });
+    await tick();
+    expect(closed).toBe(1);
+    await expect(t.send({ id: 1, cmd: "GET_STATUS", params: {} })).rejects.toThrow("NOT_OPEN");
+  });
 });

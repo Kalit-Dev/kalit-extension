@@ -86,17 +86,37 @@ describe("MockTransport behind Noise", () => {
     expect(await code(client.call("ADD_ENTRY", { origin: "https://x.example.com", site: "x.example.com", username: "u" }))).toBe("INVALID_STATE");
   });
 
-  it("refuses a fifth host with INVALID_STATE", async () => {
+  it("evicts the oldest host when a fifth one is paired with a button confirmation", async () => {
     const mock = new MockTransport({ fast: true });
-    for (let i = 0; i < 4; i++) {
-      const c = connect(mock);
+    const hosts: KeyPair[] = [];
+    for (let i = 0; i < 5; i++) {
+      const id = generateKeyPair();
+      hosts.push(id);
+      const c = connect(mock, id);
       await c.transport.open();
       await c.client.call("PAIR_HOST", {});
       await c.transport.close();
     }
-    const fifth = connect(mock);
-    await fifth.transport.open();
-    expect(await code(fifth.client.call("PAIR_HOST", {}))).toBe("INVALID_STATE");
+    const status = async (id: KeyPair) => {
+      const c = connect(mock, id, { key: null });
+      await c.transport.open();
+      const st = await c.client.call("GET_STATUS", {});
+      await c.transport.close();
+      return st.hostTrusted;
+    };
+    expect(await status(hosts[0]!)).toBe(false);
+    expect(await status(hosts[1]!)).toBe(true);
+    expect(await status(hosts[4]!)).toBe(true);
+  });
+
+  it("closes the session after WIPED so the old key cannot be used again", async () => {
+    const { client, transport } = await ready();
+    await client.call("LOCK", {});
+    let closed = 0;
+    transport.onClose(() => closed++);
+    for (let i = 0; i < 10; i++) await code(client.call("UNLOCK", { masterPassword: "wrong wrong wrong" }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(closed).toBe(1);
   });
 
   it("wipes after 10 bad passwords: vault, pins and device key are gone", async () => {
