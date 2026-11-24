@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { DeviceClient, DeviceError, type ClientErrorCode } from "@/shared/api/device/client";
 import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/shared/api/device/keys";
-import type { AddSecretEntryParams, AddWebEntryParams, AuditReport, Credential, EntryMeta, HostInfo, Status, TotpCode } from "@/shared/api/device/protocol";
+import { supportsPairVerify, type AddSecretEntryParams, type AddWebEntryParams, type AuditReport, type Credential, type EntryMeta, type HostInfo, type Status, type TotpCode } from "@/shared/api/device/protocol";
 import { SecureTransport } from "@/shared/api/device/secure-transport";
 import { SerialTransport } from "@/shared/api/device/serial-transport";
 import type { RawTransport, TransportKind } from "@/shared/api/device/transport";
@@ -14,11 +14,12 @@ import {
   type BackupProgress,
 } from "@/shared/api/device/backup";
 import { siteOf } from "@/shared/lib/domain";
+import { makePairChoices } from "@/shared/lib/pair-choices";
 
 import { kvSet } from "@/shared/lib/kv";
-import type { PendingConfirm, Phase } from "@/shared/api/engine/protocol";
+import type { EngineSnapshot, PairState, PendingConfirm, Phase } from "@/shared/api/engine/protocol";
 
-export type { PendingConfirm, Phase };
+export type { PairState, PendingConfirm, Phase };
 
 interface DeviceStore {
   client: DeviceClient | null;
@@ -28,13 +29,28 @@ interface DeviceStore {
   /** Faqat metadata, faqat RAM'da. Parollar bu yerda hech qachon bo'lmaydi. */
   entries: EntryMeta[];
   pending: PendingConfirm | null;
-  /** Noise handshake'dan hosil bo'lgan 4 xonali kod (ikkala tomonda bir xil). */
+  /**
+   * Host'ning o'z Noise handshake hash'idan hisoblangan 2 xonali kod. Faqat engine ichida: popup'ga
+   * (snapshot) hech qachon chiqmaydi, UI uni faqat `pairChoices` ichida, chalg'ituvchilar orasida ko'radi.
+   */
   pairingCode: string | null;
+  /** v0.11: kod tanlovi kutilmoqda — 3 ta variant (biri haqiqiy), aks holda null. */
+  pairChoices: string[] | null;
+  /** v0.11: ulash bosqichi (engine'ning o'z bilimi). `mismatch` — tanlov mahalliy kodga mos kelmadi. */
+  pairState: PairState;
+  /**
+   * Shu Noise sessiyasi uchun bir marta yaratilgan variantlar to'plami (faqat engine ichida). Har urinishda yangi
+   * chalg'ituvchilar bo'lsa, ikki urinishni solishtirib haqiqiy kodni topish mumkin edi — shuning uchun qayta ishlatiladi.
+   * `pairingCode` bilan birga tozalanadi (yangi handshake = yangi kod va yangi to'plam).
+   */
+  pairChoiceSet: string[] | null;
 
   connect(kind: TransportKind, opts?: { silent?: boolean }): Promise<void>;
   disconnect(): Promise<void>;
   refresh(): Promise<void>;
   pair(): Promise<void>;
+  /** v0.11: foydalanuvchi tanlovi (null = "hech biri mos emas"). Kutilayotgan tanlov bo'lmasa — hech narsa qilmaydi. */
+  pairChoose(code: string | null): Promise<void>;
   onboard(masterPassword: string): Promise<void>;
   unlock(masterPassword: string): Promise<void>;
   lock(): Promise<void>;
@@ -90,6 +106,9 @@ const initialState = {
   entries: [] as EntryMeta[],
   pending: null,
   pairingCode: null as string | null,
+  pairChoices: null as string[] | null,
+  pairState: "idle" as PairState,
+  pairChoiceSet: null as string[] | null,
 };
 
 const SECURE_ERRORS = new Set(["DEVICE_KEY_CHANGED", "PROTOCOL", "TIMEOUT"]);
@@ -100,6 +119,20 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     const c = get().client;
     if (!c) throw new DeviceError("DISCONNECTED");
     return c;
+  };
+
+  /** Kutilayotgan kod tanlovi (pair() ichida). Bir vaqtda ko'pi bilan bitta. */
+  let choiceWaiter: { pick(code: string | null): void; cancel(error: DeviceError): void } | null = null;
+  /** Foydalanuvchi emas, tizim tanlovni yopdi (uzilish, qurilma taymeri): `error` bilan rad. */
+  const cancelChoice = (error: DeviceError) => {
+    const w = choiceWaiter;
+    choiceWaiter = null;
+    w?.cancel(error);
+  };
+  /** Holatni boshlang'ichga qaytaradi; ochiq tanlov DISCONNECTED bilan yopiladi. */
+  const reset = () => {
+    cancelChoice(new DeviceError("DISCONNECTED"));
+    set({ ...initialState });
   };
 
   return {
@@ -139,9 +172,18 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         const c = new DeviceClient(secure);
         c.onEvent((e) => {
           if (e.event === "CONFIRM_PENDING") {
-            set({ pending: { ...e.data, expiresAt: Date.now() + e.data.timeoutMs } });
+            // v0.11: "pair" hech qachon umumiy overlay'ga tushmaydi — ulash oqimining o'z UI'si bor va qaysi bosqich
+            // ekanini engine o'zi biladi (`pairState`). Aks holda MITM bosqichsiz "pair" hodisasi bilan haqiqiy
+            // OLED kodini overlay'da ko'rsatib, foydalanuvchini aldashi mumkin edi.
+            if (e.data.action === "pair") return;
+            // Qurilma yuborgan `code` ishonchsiz va boshqa amallarda ishlatilmaydi: overlay'ga o'tkazilmaydi.
+            const info = { ...e.data };
+            delete info.code;
+            set({ pending: { ...info, expiresAt: Date.now() + info.timeoutMs } });
           } else if (e.event === "CONFIRM_DONE") {
-            set({ pending: null });
+            // Verify bosqichi qurilmada tugagan bo'lishi mumkin (taymer): ochiq tanlov ham yopiladi.
+            cancelChoice(new DeviceError("TIMEOUT"));
+            set({ pending: null, pairChoices: null });
           } else if (e.event === "LOCKED") {
             // v0.7: qurilma harakatsizlikdan keyin o'zi qulfladi (qo'lda LOCK bilan bir xil holat).
             set((st) => ({ phase: "locked", entries: [], pending: null, status: st.status && { ...st.status, state: "LOCKED" } }));
@@ -149,23 +191,31 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         });
         // Eski ulanishning kech kelgan yopilish xabari yangi ulanishni buzmasligi kerak.
         secure.onClose(() => {
-          if (get().client === c) set({ ...initialState });
+          if (get().client === c) reset();
         });
 
-        set({ client: c, kind, pairingCode: secure.pairingCode });
+        set({ client: c, kind, pairingCode: secure.pairingCode, pairChoiceSet: null });
         await get().refresh();
       } catch (e) {
         console.error("[kalit-engine] connect failed", e);
         await (get().client?.transport ?? secure)?.close().catch(() => undefined);
-        set({ ...initialState });
+        reset();
         if (!silent) throw e;
       }
     },
 
     async disconnect() {
       void kvSet("autoConnect", false); // qo'lda uzilgan: port bo'shaydi (masalan, firmware yuklash uchun), o'zi qayta ulanmaydi
+      // Kod tanlovi ochiq bo'lsa: avval qurilmaga PAIR_VERIFY {match:false} ketsin (u pairing'ni bekor qilib OLED'ni bo'shatadi),
+      // keyin port yopiladi. Aks holda qurilma 30 s gacha kod ekranida qotib turadi.
+      const waiter = choiceWaiter;
+      if (waiter && get().client) {
+        choiceWaiter = null;
+        waiter.pick(null);
+        await new Promise((r) => setTimeout(r, 250));
+      }
       await get().client?.transport.close();
-      set({ ...initialState });
+      reset();
     },
 
     async refresh() {
@@ -179,8 +229,53 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     },
 
     async pair() {
-      await client().pair(() => true);
+      const c = client();
+      // Haqiqiy kod — host'ning o'zi hisoblagani. Qurilma yuborgan `info.code` ishonchsiz (MITM uni boshqaradi).
+      const local = get().pairingCode;
+      if (!local) throw new DeviceError("PROTOCOL");
+      // Eski firmware (< 1.3.0) verify bosqichisiz tugma bilan pin qiladi: PAIR_HOST umuman yuborilmaydi.
+      const status = get().status ?? (await c.call("GET_STATUS", {}));
+      if (!supportsPairVerify(status.firmware)) throw new DeviceError("FIRMWARE_OUTDATED");
+      set({ pairState: "idle" }); // oldingi "mismatch" ogohlantirishi yangi urinishda tozalanadi
+      try {
+        await c.pair(async () => {
+          cancelChoice(new DeviceError("USER_REJECTED")); // eski tanlov qolgan bo'lsa — rad
+          let choices = get().pairChoiceSet;
+          if (!choices) {
+            choices = makePairChoices(local);
+            set({ pairChoiceSet: choices });
+          }
+          const shown = choices;
+          // pairChoose `idle`/`mismatch` ni o'rnatadi; cancel (uzilish/taymer) — xato bilan rad.
+          const picked = await new Promise<string | null>((resolve, reject) => {
+            choiceWaiter = { pick: resolve, cancel: reject };
+            set({ pairChoices: shown, pairState: "choosing" });
+          });
+          return picked !== null && picked === local;
+        });
+        set({ pairState: "idle" });
+      } catch (e) {
+        // "mismatch" foydalanuvchi qayta urinmaguncha (yoki uzilguncha) ko'rinib turadi.
+        if (get().pairState !== "mismatch") set({ pairState: "idle" });
+        throw e;
+      } finally {
+        // PAIR_HOST taymer/uzilish bilan tugasa ham dialog yopiladi va kutuvchi osilib qolmaydi.
+        cancelChoice(new DeviceError("USER_REJECTED"));
+        set({ pairChoices: null });
+      }
       await get().refresh();
+    },
+
+    async pairChoose(code) {
+      const w = choiceWaiter;
+      if (!w) return; // kutilayotgan tanlov yo'q — no-op
+      choiceWaiter = null;
+      // Moslikni engine o'zi hal qiladi (mahalliy kod bilan). Mos kelsa qurilma tugmasiz darhol pin qiladi (v0.11,
+      // firmware 1.3.0): alohida tugma bosqichi yo'q — UI pair() tugaguncha "Ulanmoqda…" ko'rsatadi.
+      const local = get().pairingCode;
+      const matched = code !== null && local !== null && code === local;
+      set({ pairChoices: null, pairState: matched ? "idle" : "mismatch" });
+      w.pick(code);
     },
 
     async onboard(masterPassword) {
@@ -196,7 +291,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
           // Zavod holati: qurilma yangi kalit yaratdi. Eski pin'ni unutib ajratamiz, keyingi ulanish toza bo'ladi.
           await forgetDevice();
           await get().client?.transport.close().catch(() => undefined);
-          set({ ...initialState });
+          reset();
         } else {
           await get().refresh().catch(() => undefined); // urinishlar sonini yangilash
         }
@@ -305,7 +400,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         if (e instanceof DeviceError && e.code === "WIPED") {
           await forgetDevice();
           await get().client?.transport.close().catch(() => undefined);
-          set({ ...initialState });
+          reset();
         } else {
           await get().refresh().catch(() => undefined); // urinishlar sonini yangilash
         }
@@ -333,3 +428,9 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     forgetDevice,
   };
 });
+
+/** Popup ko'zgusi uchun holat. `pairingCode` ataylab yo'q: haqiqiy kod UI'ga chiqmaydi. */
+export function engineSnapshot(): EngineSnapshot {
+  const { kind, phase, status, entries, pending, pairChoices, pairState } = useDevice.getState();
+  return { kind, phase, status, entries, pending, pairChoices, pairState };
+}

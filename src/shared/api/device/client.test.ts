@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DeviceClient } from "./client";
+import { DeviceClient, DeviceError } from "./client";
 import type { Transport } from "./transport";
 
 function fakeTransport() {
@@ -255,21 +255,57 @@ describe("pair() (v0.11 PAIR_VERIFY)", () => {
   }
   const verifyEvent = (d: Record<string, unknown>) => ({ event: "CONFIRM_PENDING", data: { action: "pair", timeoutMs: 30_000, ...d } });
 
-  it("gives PAIR_HOST the verify window plus the button window", async () => {
+  it("gives PAIR_HOST the verify window plus a margin, but no button window", async () => {
     vi.useFakeTimers();
     const { t } = recording();
     const client = new DeviceClient(t);
     const p = client.pair(() => true);
-    await vi.advanceTimersByTimeAsync(41_000);
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
+    await vi.advanceTimersByTimeAsync(31_000);
+    t.reply({ id: 2, ok: true, result: {} });
     t.reply({ id: 1, ok: true, result: {} });
     await expect(p).resolves.toBeUndefined();
+  });
+
+  it("PAIR_HOST times out after the verify window + 2 s (no press phase to wait for)", async () => {
+    vi.useFakeTimers();
+    const { t } = recording();
+    const client = new DeviceClient(t);
+    const p = client.call("PAIR_HOST", {});
+    const assertion = expect(p).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(32_001);
+    await assertion;
+  });
+
+  it("PAIR_VERIFY uses the standard request timeout (the device answers at once)", async () => {
+    vi.useFakeTimers();
+    const { t } = recording();
+    const client = new DeviceClient(t);
+    const p = client.call("PAIR_VERIFY", { match: true });
+    const assertion = expect(p).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(8_001);
+    await assertion;
+  });
+
+  it("no-press wire order: CONFIRM_DONE, PAIR_VERIFY {}, PAIR_HOST {} -> resolves", async () => {
+    const { t, sent } = recording();
+    const client = new DeviceClient(t);
+    const p = client.pair((info) => info.code === "07");
+    t.reply(verifyEvent({ code: "07", phase: "verify" }));
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ cmd: "PAIR_VERIFY", params: { match: true } });
+    t.reply({ event: "CONFIRM_DONE" });
+    t.reply({ id: 2, ok: true, result: {} });
+    t.reply({ id: 1, ok: true, result: {} });
+    await expect(p).resolves.toBeUndefined();
+    expect(sent).toHaveLength(2); // boshqa so'rov yo'q
   });
 
   it("sends PAIR_VERIFY with the choice, then reports the PAIR_HOST outcome", async () => {
     const { t, sent } = recording();
     const client = new DeviceClient(t);
-    const p = client.pair((info) => info.code === "1234");
-    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
+    const p = client.pair((info) => info.code === "12");
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     expect(sent[1]).toMatchObject({ id: 2, cmd: "PAIR_VERIFY", params: { match: true } });
     t.reply({ id: 2, ok: true, result: {} });
@@ -282,38 +318,77 @@ describe("pair() (v0.11 PAIR_VERIFY)", () => {
     const choose = vi.fn(() => true);
     const client = new DeviceClient(t);
     const p = client.pair(choose);
-    t.reply(verifyEvent({ code: "1234" })); // tugma bosqichi (phase yo'q) — verify emas
+    t.reply(verifyEvent({ code: "12" })); // eski firmware tugma hodisasi (phase yo'q) — verify emas
     t.reply({ id: 1, ok: true, result: {} });
     await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
     expect(choose).not.toHaveBeenCalled();
     expect(sent).toHaveLength(1);
   });
 
-  it("fails closed with PROTOCOL when choose said no but the peer still answers PAIR_HOST {}", async () => {
+  it("mismatch: sends PAIR_VERIFY {match:false} and rejects USER_REJECTED at once, without waiting for PAIR_HOST", async () => {
     const { t, sent } = recording();
     const client = new DeviceClient(t);
     const p = client.pair(() => false);
-    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
+    await expect(p).rejects.toMatchObject({ code: "USER_REJECTED" }); // PAIR_HOST hali javob bermagan
     expect(sent[1]).toMatchObject({ cmd: "PAIR_VERIFY", params: { match: false } });
+    // keyingi PAIR_HOST natijasi (hatto {}) yutiladi: unhandled rejection yo'q, kech o'zgarish yo'q
     t.reply({ id: 2, ok: true, result: {} });
     t.reply({ id: 1, ok: true, result: {} });
-    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
+    await new Promise((r) => setTimeout(r, 5));
   });
 
-  it("does not resolve on an early PAIR_HOST {} while choose is pending; waits for the decision", async () => {
-    const { t } = recording();
+  it("mismatch: a later PAIR_HOST error is swallowed and the listener is removed", async () => {
+    const { t, sent } = recording();
+    const choose = vi.fn(() => false);
+    const client = new DeviceClient(t);
+    const p = client.pair(choose);
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
+    await expect(p).rejects.toMatchObject({ code: "USER_REJECTED" });
+    t.reply(verifyEvent({ code: "12", phase: "verify" })); // tinglovchi olib tashlangan
+    t.reply({ id: 1, ok: false, error: "USER_REJECTED" });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("choose throwing a DeviceError rejects with that error at once (match=false sent)", async () => {
+    const { t, sent } = recording();
+    const client = new DeviceClient(t);
+    const p = client.pair(() => Promise.reject(new DeviceError("TIMEOUT")));
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
+    await expect(p).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(sent[1]).toMatchObject({ cmd: "PAIR_VERIFY", params: { match: false } });
+  });
+
+  it("does not resolve on an early PAIR_HOST {} while choose is pending; a later 'no' is USER_REJECTED and sends no late PAIR_VERIFY", async () => {
+    const { t, sent } = recording();
     const client = new DeviceClient(t);
     let decide: (v: boolean) => void = () => undefined;
     const p = client.pair(() => new Promise<boolean>((r) => (decide = r)));
     let settled = false;
     void p.then(() => (settled = true), () => (settled = true));
-    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
     t.reply({ id: 1, ok: true, result: {} });
     await new Promise((r) => setTimeout(r, 5));
     expect(settled).toBe(false);
     decide(false);
-    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
+    await expect(p).rejects.toMatchObject({ code: "USER_REJECTED" });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(sent).toHaveLength(1); // PAIR_HOST allaqachon tugagan: kech PAIR_VERIFY yuborilmaydi
+  });
+
+  it("PAIR_HOST error while choose is pending rejects with it and sends no late PAIR_VERIFY", async () => {
+    const { t, sent } = recording();
+    const client = new DeviceClient(t);
+    let decide: (v: boolean) => void = () => undefined;
+    const p = client.pair(() => new Promise<boolean>((r) => (decide = r)));
+    t.reply(verifyEvent({ code: "12", phase: "verify" }));
+    t.reply({ id: 1, ok: false, error: "TIMEOUT" });
+    await expect(p).rejects.toMatchObject({ code: "TIMEOUT" });
+    decide(false);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(sent).toHaveLength(1);
   });
 
   it("throws PROTOCOL when the verify event carries no code, answering match=false", async () => {

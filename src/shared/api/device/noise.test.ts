@@ -51,8 +51,14 @@ describe("Noise_XX_25519_ChaChaPoly_SHA256 official vector", () => {
     expect(bytesToHex(r.send.encrypt(m5!.payload))).toBe(bytesToHex(m5!.ct));
   });
 
-  it("pairingCode of the vector hash is 3262", () => {
-    expect(pairingCode(hex(vector.handshake_hash))).toBe("3262");
+  it("pairingCode (2-digit SAS) matches the firmware vectors", () => {
+    expect(pairingCode(hex(vector.handshake_hash))).toBe("62");
+    // TS transkripti (docs/protocol-v0.2.md) — firmware test_noise T_HASH bilan bir xil
+    expect(pairingCode(hex("4761aa086afe2281699a25bc64f24056f64f15a23e11517d7505e6ec3ced6c8d"))).toBe("28");
+  });
+
+  it("pairingCode zero-pads to 2 digits", () => {
+    expect(pairingCode(new Uint8Array(32).fill(0x0d))).toBe("05");
   });
 });
 
@@ -68,7 +74,7 @@ describe("NoiseSession round trip", () => {
     expect(r.remoteStatic).toEqual(si.pub);
     expect(i.handshakeHash).toEqual(r.handshakeHash);
     expect(pairingCode(i.handshakeHash)).toBe(pairingCode(r.handshakeHash));
-    expect(pairingCode(i.handshakeHash)).toMatch(/^\d{4}$/);
+    expect(pairingCode(i.handshakeHash)).toMatch(/^\d{2}$/);
   });
 
   it("different prologues cannot complete a handshake", () => {

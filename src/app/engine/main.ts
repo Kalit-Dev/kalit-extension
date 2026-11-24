@@ -1,14 +1,13 @@
 import { DeviceError } from "@/shared/api/device/client";
 import { errorCode } from "@/shared/lib/errors";
 import { kvGet } from "@/shared/lib/kv";
-import { useDevice } from "./device-store";
+import { engineSnapshot, useDevice } from "./device-store";
 import { startHub } from "./hub";
 import {
   isEngineRequest,
   STATE_EVENT,
   type EngineReply,
   type EngineRequest,
-  type EngineSnapshot,
   type StateEvent,
 } from "@/shared/api/engine/protocol";
 
@@ -18,10 +17,7 @@ import {
  * Popup faqat UI: holat ko'zgusini oladi va buyruqlarni shu yerga yuboradi.
  */
 
-const snapshot = (): EngineSnapshot => {
-  const { kind, phase, status, entries, pending, pairingCode } = useDevice.getState();
-  return { kind, phase, status, entries, pending, pairingCode };
-};
+const snapshot = engineSnapshot;
 
 const broadcast = () => {
   const event: StateEvent = { type: STATE_EVENT, state: snapshot() };
@@ -39,6 +35,7 @@ async function run({ op, args }: EngineRequest): Promise<unknown> {
     disconnect: s.disconnect,
     refresh: s.refresh,
     pair: s.pair,
+    pairChoose: s.pairChoose,
     onboard: s.onboard,
     unlock: s.unlock,
     lock: s.lock,

@@ -86,16 +86,23 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
+/**
+ * v0.11 pairing: foydalanuvchi qurilma ko'rsatgan kodni tanlaydi. Haqiqiy taqqoslash shu: qurilma e'lon qilgan
+ * (ishonchsiz) kod host'ning o'zi hisoblagan `secure.pairingCode` bilan solishtiriladi.
+ */
+const pairMatching = (d: { client: DeviceClient; secure: SecureTransport }) =>
+  d.client.pair(({ code: announced }) => d.secure.pairingCode !== null && announced === d.secure.pairingCode);
+
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "1.2.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "1.3.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "1.2.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "1.3.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
-    await client.call("PAIR_HOST", {});
+    await pairMatching({ client, secure });
     // SAS kodi ikki tomonda bir xil: qurilma uni serial log'ga yozgan
     expect(raw.stderr).toContain(`PAIR CODE ${secure.pairingCode}`);
 
@@ -124,8 +131,8 @@ describe.skipIf(!available)("interop with native firmware", () => {
   }, 30_000);
 
   it("v0.3 management: update entry, change master, list hosts, revoke", async () => {
-    const { client } = await start("accept");
-    await client.call("PAIR_HOST", {});
+    const { secure, client } = await start("accept");
+    await pairMatching({ client, secure });
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     const { entry } = await client.call("ADD_ENTRY", {
       origin: "https://example.com",
@@ -158,8 +165,8 @@ describe.skipIf(!available)("interop with native firmware", () => {
   }, 30_000);
 
   it("v0.4 secret entries: add, list, reveal, get_credential mismatch, update, delete", async () => {
-    const { client } = await start("accept");
-    await client.call("PAIR_HOST", {});
+    const { secure, client } = await start("accept");
+    await pairMatching({ client, secure });
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     const { entry } = await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "home", password: "s3cret-pw" });
     expect(entry).toMatchObject({ kind: "secret", site: "", title: "Wi-Fi", username: "home" });
@@ -180,8 +187,8 @@ describe.skipIf(!available)("interop with native firmware", () => {
   }, 30_000);
 
   it("v0.8 secure note: add, hasNote in LIST, GET_NOTE needs button, update/clear, limits", async () => {
-    const { client } = await start("accept");
-    await client.call("PAIR_HOST", {});
+    const { secure, client } = await start("accept");
+    await pairMatching({ client, secure });
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     const note = "tiklash kodlari:\n1111-2222\n3333-4444 — o'zbekcha ✓";
     const { entry } = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw", note });
@@ -205,8 +212,8 @@ describe.skipIf(!available)("interop with native firmware", () => {
   }, 30_000);
 
   it("v0.5 import session: one confirmation, then adds without buttons", async () => {
-    const { client } = await start("accept");
-    await client.call("PAIR_HOST", {});
+    const { secure, client } = await start("accept");
+    await pairMatching({ client, secure });
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     const seen: string[] = [];
     client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data.action));
@@ -238,14 +245,59 @@ describe.skipIf(!available)("interop with native firmware", () => {
     expect(seen.slice(before)).toEqual(["save"]);
   }, 30_000);
 
-  it("surfaces CONFIRM_PENDING for the pairing code and honours a rejection on the device", async () => {
-    const { client } = await start("reject");
-    const seen: string[] = [];
-    client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data.action));
-    expect(await code(client.call("PAIR_HOST", {}))).toBe("USER_REJECTED");
-    expect(seen).toEqual(["pair"]);
+  it("pair: only the verify CONFIRM_PENDING then CONFIRM_DONE; matching choice pins with no button press", async () => {
+    // --auto-confirm=reject: agar qurilma tugma bosqichini boshlaganida, pairing rad etilardi
+    const { raw, secure, client } = await start("reject");
+    const seen: { event: string; action?: string; phase?: string; code?: string }[] = [];
+    client.onEvent((e) => {
+      if (e.event === "CONFIRM_PENDING") seen.push({ event: e.event, action: e.data.action, phase: e.data.phase, code: e.data.code });
+      else if (e.event === "CONFIRM_DONE") seen.push({ event: e.event });
+    });
+    await pairMatching({ client, secure });
+    const local = secure.pairingCode!;
+    expect(local).toMatch(/^\d{2}$/);
+    expect(seen).toEqual([
+      { event: "CONFIRM_PENDING", action: "pair", phase: "verify", code: local },
+      { event: "CONFIRM_DONE" },
+    ]);
+    expect(raw.stderr).toMatch(/PAIR CODE \d{2}(?!\d)/);
+    expect(raw.stderr).toContain(`PAIR CODE ${local}`);
+    expect((await client.call("GET_STATUS", {})).hostTrusted).toBe(true);
+  }, 30_000);
+
+  it("wrong choice -> USER_REJECTED, no button phase, device still untrusted", async () => {
+    const { secure, client } = await start("accept"); // tugma avtomatik qabul qilsa ham pin bo'lmasligi kerak
+    const events: string[] = [];
+    client.onEvent((e) => {
+      if (e.event === "CONFIRM_PENDING") events.push(`PENDING:${e.data.phase ?? "press"}`);
+      else if (e.event === "CONFIRM_DONE") events.push("DONE");
+    });
+    let offered: string | null = null;
+    expect(
+      await code(
+        client.pair(({ code: announced }) => {
+          offered = announced;
+          return false; // "Hech biri mos emas" / boshqa kod tanlandi
+        }),
+      ),
+    ).toBe("USER_REJECTED");
+    expect(offered).toBe(secure.pairingCode);
+    expect(offered).toMatch(/^\d{2}$/);
     expect((await client.call("GET_STATUS", {})).hostTrusted).toBe(false);
-  }, 15_000);
+    expect(events).toEqual(["PENDING:verify", "DONE"]); // tugma bosqichi boshlanmadi
+    expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
+  }, 30_000);
+
+  it("matching choice -> trusted without any press (persists across restart)", async () => {
+    const state = mkdtempSync(path.join(tmpdir(), "kalit-interop-"));
+    const profile = hostProfile();
+    const a = await startOn(state, profile, "reject"); // tugma bosilmaydi (bosilsa — rad)
+    await pairMatching(a);
+    expect((await a.client.call("GET_STATUS", {})).hostTrusted).toBe(true);
+    await stop(a.raw);
+    const b = await startOn(state, profile, "accept");
+    expect((await b.client.call("GET_STATUS", {})).hostTrusted).toBe(true);
+  }, 30_000);
 });
 
 /** Host-side persistent view: same identity key + the same in-memory "pin store" across device restarts. */
@@ -287,7 +339,7 @@ describe.skipIf(!available)("interop: wipe, attempts and device-key pinning agai
     const a = await startOn(state, profile);
     const pinnedKey = profile.pin.key!;
     expect(pinnedKey).toHaveLength(32);
-    await a.client.call("PAIR_HOST", {});
+    await pairMatching(a);
     await a.client.call("ONBOARD", { masterPassword: MASTER });
     await a.client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" });
     await a.client.call("LOCK", {});
@@ -321,7 +373,7 @@ describe.skipIf(!available)("interop: wipe, attempts and device-key pinning agai
     const state = mkdtempSync(path.join(tmpdir(), "kalit-interop-"));
     const profile = hostProfile();
     const a = await startOn(state, profile);
-    await a.client.call("PAIR_HOST", {});
+    await pairMatching(a);
     await a.client.call("ONBOARD", { masterPassword: MASTER });
     await a.client.call("LOCK", {});
     for (let i = 0; i < 4; i++) expect(await code(a.client.call("UNLOCK", { masterPassword: "wrong wrong wrong" }))).toBe("BAD_PASSWORD");
@@ -348,8 +400,8 @@ describe.skipIf(!available)("interop: wipe, attempts and device-key pinning agai
   }, 30_000);
 
   it("origin rules agree between the TS rules and the real firmware (hostile origins)", async () => {
-    const { client } = await start("accept");
-    await client.call("PAIR_HOST", {});
+    const { secure, client } = await start("accept");
+    await pairMatching({ client, secure });
     await client.call("ONBOARD", { masterPassword: MASTER });
     const { entry } = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" });
     const origins = [
@@ -415,7 +467,7 @@ describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the re
 
   async function device() {
     const d = await start("accept");
-    await d.client.call("PAIR_HOST", {});
+    await pairMatching(d);
     await d.client.call("ONBOARD", { masterPassword: MASTER });
     return d;
   }
@@ -489,7 +541,7 @@ describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the re
   describe("v0.10 password audit and generator", () => {
     async function unlocked() {
       const d = await start("accept");
-      await d.client.call("PAIR_HOST", {});
+      await pairMatching(d);
       await d.client.call("ONBOARD", { masterPassword: "correct horse battery" });
       return d;
     }

@@ -29,9 +29,22 @@ Chrome toolbar'idagi jumboq belgisi (Extensions) → Kalit yonidagi **pin** tugm
 
 Qurilma yangi kompyuterni tanimaydi, shuning uchun uni bir marta ulash kerak:
 
-1. "Bu kompyuterni ulang" ekranida ko'rsatilgan kodni qurilmadagi kod bilan solishtiring.
-2. Kodlar bir xil bo'lsa — qurilmadagi tugmani bosing. Mos kelmasa — tasdiqlamang.
-3. Tasdiqlash 10 soniya ichida bo'lishi kerak, aks holda so'rov bekor bo'ladi.
+1. Qurilma OLED ekranida 2 xonali kodni ko'rsatadi (masalan `07`). Bu paytda qurilmadagi tugma ishlamaydi.
+2. "Bu kompyuterni ulang" ekranida 3 ta kod chiqadi: OLED'dagi kod bilan bir xilini tanlang (30 soniya ichida).
+   Hech biri mos kelmasa — **"Hech biri mos emas"** ni bosing: ulanish rad etiladi.
+3. To'g'ri kod tanlansa, qurilmada tugma bosish **kerak emas**: extension "Ulanmoqda…" deydi, qurilma ekranida "Ulandi"
+   chiqadi va ulanish tugaydi.
+
+**Muhim:** "Kod mos kelmadi" ogohlantirishi chiqsa (noto'g'ri kod yoki "Hech biri mos emas"), ulanish rad etilgan. Kod
+variantlar orasida yo'qligi kimdir ulanishga aralashayotganini (MITM) bildirishi mumkin. Cheklov: qurilma sizning
+tanlovingizni o'zi tekshira olmaydi va to'g'ri tanlovdan keyin tugma so'ramaydi — shuning uchun bunday vositachi yoki
+buzilgan kompyuter qurilmaga jismoniy tegmasdan ham o'zini ulay oladi. Kod atigi 2 xonali (~6.6 bit), ya'ni zaif. Ulangan
+kompyuter ham vault'ni master parolsiz ocha olmaydi, va har bir to'ldirish / saqlash / o'chirish baribir qurilmada tugma
+bilan tasdiqlanadi. "Kod mos kelmadi" chiqqan bo'lsa-yu qurilmada "Ulandi" ko'rinsa — begona kompyuterni
+Sozlamalar → Hostlar bo'limida bekor qiling.
+
+Bunday tasdiqlash uchun qurilma firmware'i 1.3.0 yoki yangi bo'lishi kerak: eskisida extension firmware'ni yangilashni
+so'raydi.
 
 Qurilma bir vaqtda 4 tagacha kompyuterni eslab qoladi. Keraksizini Boshqaruv → Sozlamalar → **Hostlar** bo'limidan bekor qiling.
 
@@ -66,7 +79,7 @@ Qurilma bir vaqtda 4 tagacha kompyuterni eslab qoladi. Keraksizini Boshqaruv →
 Qurilmaning o'zida parollar bor, shuning uchun ikkinchi kompyuterga faqat extension kerak:
 
 1. Shu qo'llanmaning 1-2 bandlari bo'yicha extension'ni o'rnating.
-2. Qurilmani shu kompyuterga ulang (3-band) va yangi kompyuterni ulang (4-band, qurilmada tugma bilan tasdiq).
+2. Qurilmani shu kompyuterga ulang (3-band) va yangi kompyuterni ulang (4-band, OLED'dagi kodni tanlab).
 3. Master parol bilan oching. Parollar qurilmadan keladi, kompyuterga nusxa ko'chmaydi.
 
 Ish kompyuterida extension o'rnatish siyosat bilan cheklangan bo'lishi mumkin; bu holda IT bo'limiga murojaat qiling.

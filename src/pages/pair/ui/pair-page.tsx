@@ -7,7 +7,7 @@ export function PairPage() {
     <Screen
       icon={Link2}
       title="Bu kompyuterni ulang"
-      description="Qurilma bu kompyuterni tanimaydi. Pastdagi kod qurilmada ham chiqadi (ekran yoki serial log) — mos kelsa, qurilmadagi tugmani bosing."
+      description="Qurilma ekranidagi kod bilan bir xil bo'lganini tanlang."
     >
       <PairDevice />
     </Screen>

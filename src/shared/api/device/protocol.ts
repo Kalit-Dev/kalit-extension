@@ -19,10 +19,25 @@ export const LIST_MAX_PAGES = 64;
 
 export const CONFIRM_TIMEOUT_MS = 10_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
-/** v0.11: pairing kodini solishtirish (PAIR_VERIFY) bosqichi: qurilma shuncha kutadi (keyin tugma bosqichi CONFIRM_TIMEOUT_MS). */
+/** v0.11: pairing kodini solishtirish (PAIR_VERIFY) bosqichi: qurilma shuncha kutadi (undan keyin tugma bosqichi yo'q). */
 export const PAIR_VERIFY_TIMEOUT_MS = 30_000;
-/** v0.11: pairing kodi (SAS) — aynan 4 raqam. */
-export const PAIR_CODE_RE = /^\d{4}$/;
+/** v0.11: PAIR_VERIFY (kod tanlovi) shu firmware versiyasidan boshlab. */
+export const PAIR_VERIFY_MIN_FIRMWARE: readonly [number, number, number] = [1, 3, 0];
+/**
+ * Firmware satrida (masalan "1.3.0", "mock-1.3.0") PAIR_VERIFY bormi. O'qib bo'lmaydigan versiya = yo'q
+ * (fail-closed: eski firmware verify bosqichisiz tugma bilan pin qiladi).
+ */
+export function supportsPairVerify(firmware: string | undefined | null): boolean {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(firmware ?? "");
+  if (!m) return false;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i++) {
+    if (v[i]! !== PAIR_VERIFY_MIN_FIRMWARE[i]) return v[i]! > PAIR_VERIFY_MIN_FIRMWARE[i]!;
+  }
+  return true;
+}
+/** v0.11: pairing kodi (SAS) — aynan 2 raqam (nol bilan to'ldirilgan, masalan "07"). */
+export const PAIR_CODE_RE = /^\d{2}$/;
 /** v0.6: *_BEGIN tasdiqdan keyin qurilma PBKDF2 hisoblaydi (ESP32'da ~1-3 s; zaxira bilan 30 s). */
 export const BACKUP_KDF_TIMEOUT_MS = 30_000;
 /** UNLOCK/ONBOARD: qurilmada PBKDF2 (ESP32'da soniyalar) — oddiy timeout yetmaydi. */
@@ -95,7 +110,7 @@ export const ConfirmInfo = z.object({
   site: z.string().optional(),
   username: z.string().optional(),
   code: z.string().optional(),
-  /** v0.11: action "pair" uchun "verify" = kod solishtirish bosqichi (qurilma tugmasi hali o'chiq). Yo'q = tugma bosqichi. */
+  /** v0.11: action "pair" uchun "verify" = kod solishtirish bosqichi (qurilma tugmasi o'chiq). 1.3.0 pair uchun faqat shuni yuboradi; phase'siz "pair" = eski firmware. */
   phase: z.literal("verify").optional(),
   timeoutMs: z.number().int().positive(),
 });
@@ -229,8 +244,9 @@ export const Commands = {
   // Host Noise static key orqali aniqlanadi (hostId yo'q).
   GET_STATUS: { params: Empty, result: Status, confirm: false },
   PAIR_HOST: { params: Empty, result: Empty, confirm: true },
-  // v0.11: PAIR_HOST kutayotganda foydalanuvchining kod tanlovi. match=false -> PAIR_HOST USER_REJECTED. Boshqa paytda INVALID_STATE.
-  PAIR_VERIFY: { params: z.object({ match: z.boolean() }), result: Empty, confirm: true },
+  // v0.11: PAIR_HOST kutayotganda foydalanuvchining kod tanlovi. match=true -> darhol pin (tugmasiz), PAIR_HOST {};
+  // match=false -> PAIR_HOST USER_REJECTED. Boshqa paytda INVALID_STATE. Javob darhol keladi (tasdiq bosqichi yo'q).
+  PAIR_VERIFY: { params: z.object({ match: z.boolean() }), result: Empty, confirm: false },
   ONBOARD: {
     params: z.object({ masterPassword: z.string().min(12).max(128) }),
     result: Empty,

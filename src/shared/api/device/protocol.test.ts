@@ -8,11 +8,12 @@ describe("v0.11 pairing verify schema", () => {
     expect(p.safeParse({ match: false }).success).toBe(true);
     expect(p.safeParse({}).success).toBe(false);
     expect(p.safeParse({ match: "x" }).success).toBe(false);
-    expect(Commands.PAIR_VERIFY.confirm).toBe(true);
+    // tugma bosqichi yo'q: PAIR_VERIFY javobi darhol keladi (oddiy so'rov taymeri)
+    expect(Commands.PAIR_VERIFY.confirm).toBe(false);
   });
 
   it("ConfirmInfo accepts phase 'verify' and rejects other phases", () => {
-    const base = { action: "pair", code: "1234", timeoutMs: 30000 };
+    const base = { action: "pair", code: "12", timeoutMs: 30000 };
     expect(ConfirmInfo.safeParse({ ...base, phase: "verify" }).success).toBe(true);
     expect(ConfirmInfo.safeParse(base).success).toBe(true);
     expect(ConfirmInfo.safeParse({ ...base, phase: "other" }).success).toBe(false);
@@ -20,8 +21,10 @@ describe("v0.11 pairing verify schema", () => {
 
   it("constants", () => {
     expect(PAIR_VERIFY_TIMEOUT_MS).toBe(30_000);
-    expect(PAIR_CODE_RE.test("0123")).toBe(true);
+    expect(PAIR_CODE_RE.test("07")).toBe(true);
+    expect(PAIR_CODE_RE.test("99")).toBe(true);
+    expect(PAIR_CODE_RE.test("7")).toBe(false);
     expect(PAIR_CODE_RE.test("123")).toBe(false);
-    expect(PAIR_CODE_RE.test("12345")).toBe(false);
+    expect(PAIR_CODE_RE.test("0123")).toBe(false);
   });
 });

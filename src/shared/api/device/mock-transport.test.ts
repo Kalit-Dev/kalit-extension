@@ -87,7 +87,7 @@ describe("MockTransport behind Noise", () => {
     expect(await code(client.call("ADD_ENTRY", { origin: "https://x.example.com", site: "x.example.com", username: "u" }))).toBe("INVALID_STATE");
   });
 
-  it("evicts the oldest host when a fifth one is paired with a button confirmation", async () => {
+  it("evicts the oldest host when a fifth one is paired", async () => {
     const mock = new MockTransport({ fast: true });
     const hosts: KeyPair[] = [];
     for (let i = 0; i < 5; i++) {
@@ -1019,6 +1019,70 @@ describe("v0.11 pairing code verify (PAIR_VERIFY)", () => {
   };
 
   afterEach(() => vi.useRealTimers());
+
+  /** Tugmani hech qachon bosmaydigan ulanish (pair tugmasiz tugashi kerak). */
+  const freshNoPress = async () => {
+    const mock = new MockTransport({ fast: true });
+    const transport = new SecureTransport(mock, generateKeyPair(), {
+      pinnedDeviceKey: async () => null,
+      pinDeviceKey: async () => undefined,
+      hostName: "Test Host",
+      handshakeTimeoutMs: 500,
+    });
+    const client = new DeviceClient(transport);
+    const log: string[] = [];
+    client.onEvent((e) => log.push(e.event === "CONFIRM_PENDING" ? `PENDING:${e.data.phase ?? "press"}` : e.event));
+    const orig = client.call.bind(client);
+    client.call = ((cmd: Parameters<typeof orig>[0], params: Parameters<typeof orig>[1]) =>
+      orig(cmd, params).then(
+        (r) => (log.push(`${cmd}:ok`), r),
+        (e: unknown) => {
+          log.push(`${cmd}:${e instanceof DeviceError ? e.code : "err"}`);
+          throw e;
+        },
+      )) as typeof client.call;
+    await transport.open();
+    return { mock, transport, client, log };
+  };
+
+  it("pair: matching choice pins WITHOUT any button press; wire order CONFIRM_DONE, PAIR_VERIFY {}, PAIR_HOST {}", async () => {
+    const { client, log } = await freshNoPress();
+    await client.pair(() => true);
+    expect(log).toEqual(["PENDING:verify", "CONFIRM_DONE", "PAIR_VERIFY:ok", "PAIR_HOST:ok"]);
+    expect(await trusted(client)).toBe(true);
+  }, 2_000);
+
+  it("pair: mismatch wire order CONFIRM_DONE, PAIR_VERIFY {}, PAIR_HOST USER_REJECTED", async () => {
+    const { client, log } = await freshNoPress();
+    const host = code(client.call("PAIR_HOST", {}));
+    await vi.waitFor(() => expect(log).toContain("PENDING:verify"));
+    await client.call("PAIR_VERIFY", { match: false });
+    expect(await host).toBe("USER_REJECTED");
+    expect(log).toEqual(["PENDING:verify", "CONFIRM_DONE", "PAIR_VERIFY:ok", "PAIR_HOST:USER_REJECTED"]);
+    expect(await trusted(client)).toBe(false);
+  });
+
+  it("pair: verify timeout emits CONFIRM_DONE then PAIR_HOST TIMEOUT", async () => {
+    const { client, log } = await freshNoPress();
+    vi.useFakeTimers();
+    const p = code(client.pair(() => new Promise<boolean>(() => {})));
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(await p).toBe("TIMEOUT");
+    vi.useRealTimers();
+    expect(log).toEqual(["PENDING:verify", "CONFIRM_DONE", "PAIR_HOST:TIMEOUT"]);
+  });
+
+  it("pair: button presses during verify have no effect", async () => {
+    const { mock, client } = await freshNoPress();
+    const p = client.pair(async () => {
+      mock.press("long");
+      mock.press("short");
+      await new Promise((r) => setTimeout(r, 5));
+      return true;
+    });
+    await expect(p).resolves.toBeUndefined();
+    expect(await trusted(client)).toBe(true);
+  });
 
   it("pair: matching choice pins the host", async () => {
     const { client } = await fresh();

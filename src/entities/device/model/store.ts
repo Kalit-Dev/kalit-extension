@@ -9,12 +9,13 @@ import {
   type EngineOp,
   type EngineReply,
   type EngineSnapshot,
+  type PairState,
   type PendingConfirm,
   type Phase,
   type StateEvent,
 } from "@/shared/api/engine/protocol";
 
-export type { PendingConfirm, Phase };
+export type { PairState, PendingConfirm, Phase };
 
 /**
  * Popup tomonidagi ko'zgu. Haqiqiy qurilma ulanishi va holat engine'da (offscreen hujjat);
@@ -25,6 +26,8 @@ interface DeviceStore extends EngineSnapshot {
   disconnect(): Promise<void>;
   refresh(): Promise<void>;
   pair(): Promise<void>;
+  /** v0.11: kod tanlovi (null = "hech biri mos emas"). */
+  pairChoose(code: string | null): Promise<void>;
   onboard(masterPassword: string): Promise<void>;
   unlock(masterPassword: string): Promise<void>;
   lock(): Promise<void>;
@@ -61,7 +64,8 @@ const initial: EngineSnapshot = {
   status: null,
   entries: [],
   pending: null,
-  pairingCode: null,
+  pairChoices: null,
+  pairState: "idle",
 };
 
 const ENGINE_WAIT_MS = 5_000;
@@ -110,6 +114,7 @@ export const useDevice = create<DeviceStore>()((set) => {
     disconnect: () => call("disconnect"),
     refresh: () => call("refresh"),
     pair: () => call("pair"),
+    pairChoose: (code) => call("pairChoose", code),
     onboard: (masterPassword) => call("onboard", masterPassword),
     unlock: (masterPassword) => call("unlock", masterPassword),
     lock: () => call("lock"),

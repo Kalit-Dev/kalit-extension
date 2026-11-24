@@ -9,6 +9,18 @@ const SUPPORTED_VIDS = [0x303a, 0x10c4, 0x1a86];
 /** DevKit'da port ochilganda DTR/RTS auto-reset bo'lishi mumkin — boot tugashini kutamiz. */
 const RESET_SETTLE_MS = 1200; // DevKit boot ~0.7 s (firmware -O3); erta yuborilgan msg1 yo'qoladi
 
+/** Firmware'ning "PAIR CODE ####" tashxis qatori: pairing kodi extension konsoliga chiqmasin. */
+const PAIR_CODE_LINE = /^PAIR CODE\b/;
+
+/** console.debug uchun firmware log matni: bo'sh qatorlar va "PAIR CODE" qatori tashlanadi. */
+export function debugLogText(text: string): string {
+  return text
+    .split(/\r?\n|\r/)
+    .map((l) => l.trim())
+    .filter((l) => l && !PAIR_CODE_LINE.test(l))
+    .join("\n");
+}
+
 export class SerialTransport implements RawTransport {
   readonly kind = "usb" as const;
 
@@ -104,7 +116,8 @@ export class SerialTransport implements RawTransport {
         const { value, done } = await this.reader.read();
         if (done) break;
         if (!value.includes(0) && value.every((b) => b === 10 || b === 13 || (b >= 32 && b < 127))) {
-          console.debug("[kalit-device]", new TextDecoder().decode(value).trim()); // firmware log qatorlari
+          const log = debugLogText(new TextDecoder().decode(value));
+          if (log) console.debug("[kalit-device]", log); // firmware log qatorlari
         }
         for (const frame of frames.push(value)) this.frameListeners.forEach((l) => l(frame));
       }

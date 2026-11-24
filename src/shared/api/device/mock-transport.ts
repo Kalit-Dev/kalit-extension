@@ -24,7 +24,8 @@ const GUARD_MS = 500;
 const IMPORT_SESSION_MS = 120_000;
 const BACKUP_SESSION_MS = 120_000;
 const BACKUP_ITER = 200_000;
-const FIRMWARE = "mock-1.1.0";
+/** v0.11 PAIR_VERIFY firmware 1.3.0 dan boshlab (engine pair() shu versiyani talab qiladi). */
+const FIRMWARE = "mock-1.3.0";
 /** v0.10: AUDIT_PASSWORDS bir javobda eng ko'pi bilan shuncha bayroqli yozuv (firmware kAuditPage). */
 const AUDIT_PAGE = 64;
 
@@ -109,6 +110,8 @@ const dupKey = (kind: string, site: string, username: string, title = "") =>
 export interface MockOptions {
   /** Testlar uchun: KDF/ulanish kechikishlari va 500 ms guard o'chiriladi. */
   fast?: boolean;
+  /** GET_STATUS / handshake'dagi firmware versiyasi (default FIRMWARE). Eski firmware'ni simulyatsiya qilish uchun. */
+  firmware?: string;
 }
 
 export class MockTransport implements RawTransport {
@@ -117,6 +120,9 @@ export class MockTransport implements RawTransport {
   private readonly frameListeners = new Set<(frame: Uint8Array) => void>();
   private readonly closeListeners = new Set<() => void>();
   private readonly fast: boolean;
+  private readonly firmware: string;
+  /** Ulanish avlodi: eski ulanishning navbatdagi kadrlari yangi ulanishga tushmasin. */
+  private generation = 0;
 
   // Qurilma holati (ulanishlar orasida saqlanadi)
   private deviceKey: KeyPair = generateKeyPair();
@@ -153,16 +159,18 @@ export class MockTransport implements RawTransport {
 
   private pending: ((r: ConfirmResult) => void) | null = null;
   private pendingSince = 0;
-  /** v0.11: PAIR_HOST kod tanlovini (PAIR_VERIFY) kutmoqda. Tugma bu bosqichda ishlamaydi. */
+  /** v0.11: PAIR_HOST kod tanlovini (PAIR_VERIFY) kutmoqda. Tugma bu bosqichda ishlamaydi (va pair'da tugma bosqichi yo'q). */
   private verifying: ((r: boolean | "timeout") => void) | null = null;
-  /** PAIR_VERIFY javobi PAIR_HOST natijasi aniq bo'lgach yuboriladi (firmware kabi). */
+  /** PAIR_VERIFY javobi CONFIRM_DONE'dan keyin, PAIR_HOST javobidan oldin yuboriladi (firmware kabi). */
   private verifyReply: (() => void) | null = null;
 
-  constructor({ fast = false }: MockOptions = {}) {
+  constructor({ fast = false, firmware = FIRMWARE }: MockOptions = {}) {
     this.fast = fast;
+    this.firmware = firmware;
   }
 
   async open(): Promise<void> {
+    this.generation++;
     this.noise = null;
     this.cipher = null;
     this.hostKey = null;
@@ -217,7 +225,9 @@ export class MockTransport implements RawTransport {
   }
 
   private emitRaw(frame: Uint8Array, after?: () => void) {
+    const generation = this.generation;
     setTimeout(() => {
+      if (generation !== this.generation) return; // ulanish almashgan: eski kadr tashlanadi
       this.frameListeners.forEach((l) => l(frame));
       after?.();
     }, 0);
@@ -231,7 +241,7 @@ export class MockTransport implements RawTransport {
     if (!this.noise) {
       const noise = NoiseSession.responder(this.deviceKey);
       noise.readMessage(frame);
-      this.emitRaw(noise.writeMessage(encode({ v: 1, fw: FIRMWARE, name: "Kalit Mock" })));
+      this.emitRaw(noise.writeMessage(encode({ v: 1, fw: this.firmware, name: "Kalit Mock" })));
       this.noise = noise;
       return;
     }
@@ -299,27 +309,22 @@ export class MockTransport implements RawTransport {
 
     switch (cmd) {
       case "GET_STATUS":
-        return { state: this.state, firmware: FIRMWARE, hostTrusted: isTrusted, attemptsLeft: this.attempts };
+        return { state: this.state, firmware: this.firmware, hostTrusted: isTrusted, attemptsLeft: this.attempts };
 
       case "PAIR_HOST": {
         if (isTrusted) return {};
         if (this.pending) throw new Fault("BUSY");
         const match = await this.verifyCode();
-        try {
-          if (!match) {
-            this.emitSecure({ ev: "CONFIRM_DONE" });
-            throw new Fault("USER_REJECTED");
-          }
-          await this.confirm({ action: "pair", code: this.sas });
-        } finally {
-          // PAIR_VERIFY javobi PAIR_HOST javobidan oldin ketadi.
-          const reply = this.verifyReply;
-          this.verifyReply = null;
-          if (reply) {
-            reply();
-            await wait(0);
-          }
+        // v0.11 (firmware 1.3.0): tugma bosqichi yo'q. Kadrlar: CONFIRM_DONE, PAIR_VERIFY {}, keyin PAIR_HOST.
+        this.emitSecure({ ev: "CONFIRM_DONE" });
+        const reply = this.verifyReply;
+        this.verifyReply = null;
+        if (reply) {
+          reply();
+          await wait(0);
         }
+        if (!match) throw new Fault("USER_REJECTED");
+        // match=true: darhol pin (faqat shu Noise kanalining host kaliti).
         let slot = this.slots.indexOf(null);
         if (slot < 0) slot = this.slots.reduce((m, h, i) => (h!.seq < this.slots[m]!.seq ? i : m), 0); // eng eskisi chiqariladi
         this.slots[slot] = { key: this.hostKey!, name: this.hostName, seq: this.seq++ };
@@ -700,6 +705,11 @@ export class MockTransport implements RawTransport {
       items,
       ...(rest ? { next: rest.index } : {}),
     };
+  }
+
+  /** Test hook: shifrlangan kanal orqali ixtiyoriy hodisa yuboradi (masalan, qurilma/MITM soxta CONFIRM_PENDING'i). */
+  emitEventForTest(msg: { ev: string; d?: unknown }): void {
+    this.emitSecure(msg);
   }
 
   /** Test hook (v0.7, firmware 1.1.0): qurilma harakatsizlikdan keyin o'zi qulflanadi va `LOCKED` hodisasini yuboradi. */

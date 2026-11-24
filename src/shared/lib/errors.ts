@@ -13,6 +13,7 @@ const MESSAGES: Record<string, string> = {
   DEVICE_KEY_CHANGED: "Qurilma kaliti o'zgargan — boshqa qurilma yoki zavod holati. Ishonsangiz, qurilmani unuting va qayta ulang",
   DISCONNECTED: "Qurilma uzildi",
   PROTOCOL: "Qurilmadan noto'g'ri javob keldi",
+  FIRMWARE_OUTDATED: "Qurilma firmware'i eski. Pairing uchun firmware'ni 1.3.0 yoki yangiroq versiyaga yangilang.",
   NO_PORT: "USB qurilmaga ruxsat berilmagan",
   PORT_BUSY: "Port ochilmadi: boshqa dastur band qilgan (serial monitor, pio, boshqa tab) yoki kabelni qayta ulang",
   NO_PANEL: "Kalit paneli yopiq",

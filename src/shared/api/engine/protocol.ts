@@ -7,6 +7,13 @@ import type { TransportKind } from "@/shared/api/device/transport";
  */
 export type Phase = "disconnected" | "connecting" | "pairing" | "factory" | "locked" | "unlocked";
 
+/**
+ * v0.11 ulash oqimi bosqichi (engine'ning o'z bilimi; qurilma hodisalariga ishonilmaydi):
+ * choosing — kod tanlovi; mismatch — tanlov mos kelmadi / "hech biri" (qayta urinishgacha saqlanadi).
+ * Mos tanlovdan keyin alohida bosqich yo'q: qurilma tugmasiz pin qiladi, holat `idle` ga qaytadi.
+ */
+export type PairState = "idle" | "choosing" | "mismatch";
+
 export interface PendingConfirm extends ConfirmInfo {
   expiresAt: number;
 }
@@ -18,7 +25,10 @@ export interface EngineSnapshot {
   status: Status | null;
   entries: EntryMeta[];
   pending: PendingConfirm | null;
-  pairingCode: string | null;
+  /** v0.11: kod tanlovi variantlari (3 ta, biri haqiqiy) yoki null. Haqiqiy kodning o'zi bu yerda yo'q. */
+  pairChoices: string[] | null;
+  /** v0.11: ulash bosqichi. Haqiqiy kod yo'q — faqat bosqich nomi. */
+  pairState: PairState;
 }
 
 export const ENGINE_OPS = [
@@ -27,6 +37,7 @@ export const ENGINE_OPS = [
   "disconnect",
   "refresh",
   "pair",
+  "pairChoose",
   "onboard",
   "unlock",
   "lock",

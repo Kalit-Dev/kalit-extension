@@ -204,9 +204,9 @@ export class NoiseSession {
   }
 }
 
-/** Short Authentication String: ikkala tomonda bir xil 4 xonali kod (handshake hash'dan). */
+/** Short Authentication String (v0.11): 2 xonali kod — BE uint32(SHA-256(h || "kalit/pair")[0..3]) % 100. */
 export function pairingCode(h: Uint8Array): string {
   const d = sha256(concat(h, new TextEncoder().encode("kalit/pair")));
-  const n = new DataView(d.buffer, d.byteOffset, 4).getUint32(0, false) % 10000;
-  return n.toString().padStart(4, "0");
+  const n = new DataView(d.buffer, d.byteOffset, 4).getUint32(0, false) % 100;
+  return n.toString().padStart(2, "0");
 }

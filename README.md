@@ -55,7 +55,22 @@ Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport 
   Imzo kaliti: `src/shared/api/firmware/signing-key.ts` (sozlanmaguncha tugma o'chiq), tartib: kalit-firmware `docs/RELEASE-SIGNING.md`.
 - **Parollar faqat lahzada.** Extension'da faqat metadata (sayt, login) RAM'da turadi.
 - **Origin `sender.tab.url` dan olinadi**, payload'dan emas. Qurilma ham domenni o'zi tekshiradi.
-- **Har bir parol / saqlash / o'chirish / pairing — qurilmada tugma bilan tasdiq** (10 s, keyin reject).
+- **Har bir parol / saqlash / o'chirish — qurilmada tugma bilan tasdiq** (10 s, keyin reject). Pairing bundan mustasno
+  (pastga qarang).
+- **Pairing kodini solishtirish (protokol v0.11, firmware ≥ 1.3.0).** Yangi host ulanganda qurilma OLED'da **2 xonali**
+  kodni ko'rsatadi (masalan `07`); bu bosqichda qurilma tugmasi ishlamaydi. Extension 3 ta kodni aralashtirib ko'rsatadi
+  (1 tasi haqiqiy, host'ning o'zi handshake'dan hisoblagan; 2 tasi tasodifiy, hammasi har xil) va alohida **"Hech biri mos
+  emas"** tugmasi. Foydalanuvchi OLED'dagi kod bilan bir xilini tanlaydi (30 s). To'g'ri kod tanlansa — ulanish **qurilmada
+  tugma bosmasdan** darhol yakunlanadi ("Ulanmoqda…", keyin OLED'da "Ulandi"). Noto'g'ri kod yoki "Hech biri mos emas" —
+  pairing rad etiladi va "Kod mos kelmadi" ogohlantirishi chiqadi. Qurilma yuborgan kodga ishonilmaydi: taqqoslash host'dagi
+  kod bilan. Bu tekshirilmagan pairing'ni **tasodifan** qabul qilishdan himoya qiladi va MITM'ni **aniqlash** imkonini
+  beradi (uchta variant orasida OLED'dagi kod bo'lmaydi).
+  **Cheklov (egasining ongli qarori):** tanlov natijasini (`match`) qurilmaga host yuboradi va qurilma uni tekshira olmaydi,
+  undan keyin tugma ham yo'q. Shuning uchun extension va qurilma orasidagi faol MITM yoki buzilgan host o'zini **jismoniy
+  ishtiroksiz** pin qila oladi. Kod (SAS) atigi 2 xona (~6.6 bit) — zaif, faqat foydalanuvchining solishtirishiga tayanadi.
+  Pin qilingan host ham vault'ni **master parolsiz** ocha olmaydi, va har fill/save/delete baribir qurilmada tugma bosishni
+  talab qiladi. "Kod mos kelmadi" chiqqan bo'lsa-yu, OLED'da "Ulandi" ko'rinsa — bu begona ulanish belgisi: begona hostni
+  Sozlamalar → Hostlar bo'limida bekor qiling. Eski firmware (< 1.3.0) bilan pairing boshlanmaydi: extension firmware'ni yangilashni so'raydi.
 
 ## Papkalar (Feature-Sliced Design)
 
@@ -83,7 +98,7 @@ Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
 USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
 Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). v0.7 sig'im 256, sahifalangan `LIST`, `updatedAt` (`now`), qurilma auto-lock (firmware ≥ 1.1.0): [`docs/protocol-v0.7.md`](docs/protocol-v0.7.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). v0.7 sig'im 256, sahifalangan `LIST`, `updatedAt` (`now`), qurilma auto-lock (firmware ≥ 1.1.0): [`docs/protocol-v0.7.md`](docs/protocol-v0.7.md). v0.11 pairing kodini tasdiqlash `PAIR_VERIFY` (firmware ≥ 1.3.0): [`docs/protocol-v0.11.md`](docs/protocol-v0.11.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
 
 **Import:** Manager'dagi Import sahifasi (Bitwarden JSON / CSV) boshlashdan oldin qurilmada bir marta tasdiqlanadi ("N ta yozuv"); shundan keyin barcha yozuvlar tugma bosilmasdan qo'shiladi. Boshqa amallar (parolni olish, o'chirish, yangilash...) har doim alohida tasdiq talab qiladi. Eski firmware'da (< 0.4.0) import ishlamaydi.
 **Zaxira:** Sozlamalar → Zaxira: yozuvlar qurilmada alohida zaxira paroli bilan shifrlanib `kalit-backup-YYYY-MM-DD.kalit` fayliga olinadi va shu paroldan tiklanadi. Zaxira paroli tiklanmaydi — yo'qolsa fayl ochilmaydi. Extension hech qachon ochiq matn parolni ko'rmaydi.

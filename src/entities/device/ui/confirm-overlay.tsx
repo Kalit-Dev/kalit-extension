@@ -2,6 +2,7 @@ import { Fingerprint } from "lucide-react";
 import { Progress } from "@/shared/ui/progress";
 import type { ConfirmAction } from "@/shared/api/device/protocol";
 import { useCountdown } from "@/shared/lib/hooks/use-countdown";
+import { confirmView } from "../model/confirm-view";
 import { useDevice } from "../model/store";
 
 const TITLES: Record<ConfirmAction, string> = {
@@ -21,7 +22,8 @@ const TITLES: Record<ConfirmAction, string> = {
 
 /** Qurilma tugma bosilishini kutayotganda butun panel ustida ko'rinadi. */
 export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
-  const pending = useDevice((s) => s.pending);
+  // "pair" va qurilma yuborgan `code` overlay'ga hech qachon chiqmaydi (confirmView).
+  const pending = confirmView(useDevice((s) => s.pending));
   const remaining = useCountdown(pending?.expiresAt);
 
   if (!pending) return null;
@@ -45,17 +47,10 @@ export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
           </div>
         </div>
 
-        {pending.code ? (
-          <div className="grid gap-1 rounded-lg bg-muted py-3 text-center">
-            <span className="font-mono text-3xl font-semibold tracking-[0.35em]">{pending.code}</span>
-            <span className="text-xs text-muted-foreground">Qurilma ekranidagi kod bilan solishtiring</span>
-          </div>
-        ) : (
-          <div className="grid gap-0.5 rounded-lg bg-muted px-3 py-2.5">
-            <span className="truncate text-sm font-medium">{pending.site}</span>
-            <span className="truncate text-xs text-muted-foreground">{pending.username}</span>
-          </div>
-        )}
+        <div className="grid gap-0.5 rounded-lg bg-muted px-3 py-2.5">
+          <span className="truncate text-sm font-medium">{pending.site}</span>
+          <span className="truncate text-xs text-muted-foreground">{pending.username}</span>
+        </div>
 
         <div className="grid gap-2">
           <Progress value={progress} />
