@@ -44,3 +44,20 @@ export function groupByKind(entries: readonly EntryMeta[]): { kind: "web" | "sec
     { kind: "secret" as const, items: secret },
   ].filter((g) => g.items.length > 0);
 }
+
+/** URL parametridan toifa (noto'g'ri yoki yo'q bo'lsa "all"). */
+export function parseCategory(raw: string | null | undefined): EntryCategory {
+  return (ENTRY_CATEGORIES as readonly string[]).includes(raw ?? "") ? (raw as EntryCategory) : "all";
+}
+
+/** Toifa bo'shab qolgan bo'lsa (masalan, oxirgi yozuv o'chirilgach) "all". */
+export function resolveCategory(raw: string | null | undefined, counts: Record<EntryCategory, number>): EntryCategory {
+  const c = parseCategory(raw);
+  return counts[c] > 0 ? c : "all";
+}
+
+/** Yon panelda ko'rsatiladigan toifalar: "all" va bo'sh bo'lmaganlar. Bitta toifa bo'lsa [] (ajratish ma'nosiz). */
+export function visibleCategories(counts: Record<EntryCategory, number>): EntryCategory[] {
+  const rest = ENTRY_CATEGORIES.filter((c) => c !== "all" && counts[c] > 0);
+  return rest.length >= 2 ? ["all", ...rest] : [];
+}

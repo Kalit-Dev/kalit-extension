@@ -1,6 +1,6 @@
-import { ChevronRight, Clock, Globe, KeyRound, LayoutGrid, Lock, Plus, Search, ShieldCheck, StickyNote } from "lucide-react";
+import { ChevronRight, Clock, Globe, KeyRound, Lock, Plus, Search, ShieldCheck, StickyNote } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import {
@@ -12,7 +12,7 @@ import {
   isStalePassword,
   matchesCategory,
   matchesQuery,
-  type EntryCategory,
+  resolveCategory,
 } from "@/entities/entry";
 import { BackupReminder } from "@/features/backup";
 import { AuditBadges, useAudit } from "@/features/password-audit";
@@ -23,15 +23,6 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { PageTitle } from "@/shared/ui/page-title";
-import { Segmented, type SegmentedOption } from "@/shared/ui/segmented";
-
-const CATEGORY_META: Record<EntryCategory, { label: string; icon: SegmentedOption<EntryCategory>["icon"] }> = {
-  all: { label: "Hammasi", icon: LayoutGrid },
-  web: { label: "Veb", icon: Globe },
-  secret: { label: "Maxfiy", icon: Lock },
-  totp: { label: "2FA", icon: ShieldCheck },
-  note: { label: "Eslatma", icon: StickyNote },
-};
 
 const GROUP_META = {
   web: { title: "Veb parollar", icon: Globe },
@@ -47,14 +38,10 @@ export function VaultPage() {
 
   const { flags } = useAudit(entries); // qurilmada o'zi ishlaydi; natija faqat qatordagi belgilar uchun
 
-  const [category, setCategory] = useState<EntryCategory>("all");
+  // Toifa yon paneldan tanlanadi va URL'da turadi (/vault?type=web).
+  const [params] = useSearchParams();
   const counts = useMemo(() => categoryCounts(entries), [entries]);
-  const active: EntryCategory = counts[category] > 0 ? category : "all"; // toifa bo'shab qolsa (o'chirilgach) — "Hammasi"
-  const categoryOptions = (["all", "web", "secret", "totp", "note"] as const)
-    .filter((c) => c === "all" || counts[c] > 0)
-    .map((c) => ({ value: c, label: CATEGORY_META[c].label, icon: CATEGORY_META[c].icon, count: counts[c] }));
-  // Faqat bitta toifa bo'lsa (masalan, hammasi veb) filtr ma'nosiz: yashiramiz.
-  const showCategories = categoryOptions.length > 2;
+  const active = resolveCategory(params.get("type"), counts);
 
   const groups = useMemo(
     () =>
@@ -99,12 +86,6 @@ export function VaultPage() {
           aria-label="Qidirish"
         />
       </div>
-
-      {showCategories && (
-        <div className="-mx-1 mb-4 overflow-x-auto px-1 pb-1">
-          <Segmented label="Yozuv turi" value={active} options={categoryOptions} onChange={setCategory} compact />
-        </div>
-      )}
 
       {entries.length === 0 ? (
         <div className="grid justify-items-center gap-3 rounded-2xl border border-dashed py-16 text-center">

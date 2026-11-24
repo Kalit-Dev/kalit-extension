@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EntryMeta } from "@/shared/api/device/protocol";
-import { categoryCounts, groupByKind, matchesCategory } from "./category";
+import { categoryCounts, groupByKind, matchesCategory, parseCategory, resolveCategory, visibleCategories } from "./category";
 
 const e = (id: string, extra: Partial<EntryMeta> = {}): EntryMeta => ({
   id,
@@ -41,5 +41,29 @@ describe("entry categories", () => {
     ]);
     expect(groupByKind(entries.filter((x) => x.kind === "secret")).map((g) => g.kind)).toEqual(["secret"]);
     expect(groupByKind([])).toEqual([]);
+  });
+});
+
+describe("category from the URL", () => {
+  const counts = categoryCounts(entries);
+
+  it("parses only known categories", () => {
+    expect(parseCategory("web")).toBe("web");
+    expect(parseCategory("totp")).toBe("totp");
+    expect(parseCategory("nope")).toBe("all");
+    expect(parseCategory(null)).toBe("all");
+  });
+
+  it("falls back to all when the category is empty", () => {
+    expect(resolveCategory("secret", counts)).toBe("secret");
+    expect(resolveCategory("secret", { ...counts, secret: 0 })).toBe("all");
+    expect(resolveCategory(null, counts)).toBe("all");
+  });
+
+  it("shows categories only when there is more than one to pick from", () => {
+    expect(visibleCategories(counts)).toEqual(["all", "web", "secret", "totp", "note"]);
+    expect(visibleCategories(categoryCounts([e("a"), e("b")]))).toEqual([]); // faqat veb
+    expect(visibleCategories(categoryCounts([e("a"), e("b", { hasTotp: true })]))).toEqual(["all", "web", "totp"]);
+    expect(visibleCategories(categoryCounts([]))).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { ChevronRight, KeyRound, Settings } from "lucide-react";
+import { ChevronRight, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { ConfirmOverlay, DeviceStatusBadge, useDevice, type Phase } from "@/entities/device";
@@ -7,6 +7,7 @@ import { ThemeSwitcher } from "@/features/theme-switcher";
 import { cn } from "@/shared/lib/utils";
 import { Logo } from "@/shared/ui/logo";
 import { Toaster } from "@/shared/ui/sonner";
+import { VaultNav } from "./vault-nav";
 
 const FLOW: Record<Exclude<Phase, "unlocked">, string[]> = {
   disconnected: ["/connect"],
@@ -19,10 +20,6 @@ const UNLOCKED = ["/vault", "/vault/new", "/hosts", "/import", "/security"]; // 
 const isUnlockedPath = (p: string) =>
   UNLOCKED.includes(p) || p === "/settings" || p.startsWith("/settings/") || /^\/vault\/[^/]+\/edit$/.test(p);
 
-const NAV = [
-  { to: "/vault", label: "Parollar", icon: KeyRound },
-];
-
 const SETTINGS_NAV = [
   { to: "/settings/general", label: "Umumiy" },
   { to: "/settings/hosts", label: "Hostlar" },
@@ -34,12 +31,11 @@ const SETTINGS_NAV = [
 /** Boshqaruv sahifasi qobig'i: qurilma holatiga qarab oqim (flow) yoki asosiy sidebar + kontent. */
 export function ManagerShell() {
   const phase = useDevice((s) => s.phase);
-  const count = useDevice((s) => s.entries.length);
   const firmware = useDevice((s) => s.status?.firmware);
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const inSettings = pathname.startsWith("/settings");
-  const [settingsOpen, setSettingsOpen] = useState(inSettings);
+  const [settingsOpen, setSettingsOpen] = useState(true); // standart ochiq (Parollar guruhi kabi)
   useEffect(() => {
     if (inSettings) setSettingsOpen(true);
   }, [inSettings]);
@@ -85,25 +81,7 @@ export function ManagerShell() {
           <span className="text-sm font-semibold tracking-tight max-md:hidden">Kalit</span>
         </div>
         <nav className="grid gap-0.5 p-3" aria-label="Asosiy menyu">
-          {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              title={label}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground max-md:justify-center",
-                  isActive && "bg-accent font-medium text-foreground",
-                )
-              }
-            >
-              <Icon className="size-4" />
-              <span className="max-md:hidden">{label}</span>
-              {to === "/vault" && (
-                <span className="ml-auto text-xs tabular-nums text-muted-foreground max-md:hidden">{count}</span>
-              )}
-            </NavLink>
-          ))}
+          <VaultNav />
 
           <button
             type="button"
