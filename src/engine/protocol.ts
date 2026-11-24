@@ -53,7 +53,7 @@ export interface EngineRequest {
 
 export type EngineReply =
   | { ok: true; value: unknown; state: EngineSnapshot }
-  | { ok: false; code: string; state: EngineSnapshot };
+  | { ok: false; code: string; detail?: string; state: EngineSnapshot };
 
 export const STATE_EVENT = "engine:state";
 export interface StateEvent {

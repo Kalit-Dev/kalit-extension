@@ -15,7 +15,11 @@ import type { Transport } from "./transport";
 export type ClientErrorCode = ErrorCode | "DISCONNECTED" | "PROTOCOL" | "NO_PORT" | "PORT_BUSY";
 
 export class DeviceError extends Error {
-  constructor(readonly code: ClientErrorCode) {
+  /** Kutilmagan (INTERNAL) xatolarda haqiqiy sabab: "Nom: xabar". */
+  constructor(
+    readonly code: ClientErrorCode,
+    readonly detail?: string,
+  ) {
     super(code);
     this.name = "DeviceError";
   }

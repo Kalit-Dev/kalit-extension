@@ -17,6 +17,7 @@ export class SerialTransport implements RawTransport {
   private readonly frameListeners = new Set<(frame: Uint8Array) => void>();
   private readonly closeListeners = new Set<() => void>();
   private closed = false;
+  private loop: Promise<void> = Promise.resolve();
 
   private constructor(private readonly port: SerialPort) {}
 
@@ -39,16 +40,38 @@ export class SerialTransport implements RawTransport {
   }
 
   async open(): Promise<void> {
-    await this.port.open({ baudRate: 115_200 });
+    await this.openPort();
     if (!this.port.readable || !this.port.writable) throw new Error("Port streams unavailable");
     this.reader = this.port.readable.getReader();
     this.writer = this.port.writable.getWriter();
-    void this.readLoop();
+    this.loop = this.readLoop();
     await new Promise((r) => setTimeout(r, RESET_SETTLE_MS));
   }
 
+  /**
+   * Uzib-qayta ulashda oldingi ulanishning port.close() si hali tugamagan bo'lishi mumkin
+   * (InvalidStateError / NetworkError). Portni majburan yopib, bir necha marta qayta urinadi.
+   */
+  private async openPort(): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await this.port.open({ baudRate: 115_200 });
+        return;
+      } catch (e) {
+        lastError = e;
+        if (!(e instanceof DOMException) || (e.name !== "InvalidStateError" && e.name !== "NetworkError")) throw e;
+        if (e.name === "InvalidStateError") await this.port.close().catch(() => undefined);
+        await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+      }
+    }
+    throw lastError;
+  }
+
+  /** Port to'liq yopilguncha (reader bekor qilinib, lock'lar bo'shatilib, port.close()) kutadi. */
   async close(): Promise<void> {
     await this.reader?.cancel().catch(() => undefined);
+    await this.loop;
   }
 
   async send(frame: Uint8Array): Promise<void> {

@@ -72,7 +72,9 @@ export const useDevice = create<DeviceStore>()((set, get) => {
   return {
     ...initialState,
 
-    async connect(kind, { silent = false } = {}) {
+    async connect(kind, opts) {
+      // chrome.runtime JSON orqali `undefined` argument `null` bo'lib keladi, shuning uchun default parametr ishlamaydi.
+      const silent = opts?.silent ?? false;
       if (get().client || get().phase === "connecting") return;
       set({ phase: "connecting" });
       let secure: SecureTransport | null = null;
@@ -96,7 +98,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
           if (e instanceof Error && SECURE_ERRORS.has(e.message)) throw new DeviceError(e.message as ClientErrorCode);
           // Web Serial port.open(): NetworkError = port band/ochilmadi, InvalidStateError = allaqachon ochiq.
           if (e instanceof DOMException && (e.name === "NetworkError" || e.name === "InvalidStateError")) {
-            throw new DeviceError("PORT_BUSY");
+            throw new DeviceError("PORT_BUSY", `${e.name}: ${e.message}`);
           }
           throw e;
         }
@@ -111,7 +113,10 @@ export const useDevice = create<DeviceStore>()((set, get) => {
             set({ phase: "locked", entries: [], pending: null });
           }
         });
-        secure.onClose(() => set({ ...initialState }));
+        // Eski ulanishning kech kelgan yopilish xabari yangi ulanishni buzmasligi kerak.
+        secure.onClose(() => {
+          if (get().client === c) set({ ...initialState });
+        });
 
         set({ client: c, kind, pairingCode: secure.pairingCode });
         await get().refresh();

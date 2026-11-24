@@ -71,6 +71,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
     (e: unknown): EngineReply => ({
       ok: false,
       code: e instanceof DeviceError ? e.code : errorCode(e),
+      detail: e instanceof DeviceError ? e.detail : e instanceof Error ? `${e.name}: ${e.message}` : String(e),
       state: snapshot(),
     }),
   ).then(sendResponse);

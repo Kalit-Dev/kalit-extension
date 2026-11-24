@@ -29,5 +29,9 @@ export function errorCode(error: unknown): string {
 }
 
 export function describeError(error: unknown): string {
-  return MESSAGES[errorCode(error)] ?? MESSAGES.INTERNAL!;
+  const code = errorCode(error);
+  const text = MESSAGES[code] ?? MESSAGES.INTERNAL!;
+  // Kutilmagan xatoda haqiqiy sabab ko'rsatiladi (aks holda tashxis qo'yib bo'lmaydi).
+  const detail = error && typeof error === "object" && "detail" in error ? error.detail : undefined;
+  return (code === "INTERNAL" || code === "PORT_BUSY") && typeof detail === "string" && detail ? `${text}: ${detail}` : text;
 }

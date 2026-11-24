@@ -75,7 +75,7 @@ export const useDevice = create<DeviceStore>()((set) => {
   async function call<T = void>(op: EngineOp, ...args: unknown[]): Promise<T> {
     const reply = await send(op, args);
     apply(reply.state);
-    if (!reply.ok) throw new DeviceError(reply.code as ClientErrorCode);
+    if (!reply.ok) throw new DeviceError(reply.code as ClientErrorCode, reply.detail);
     return reply.value as T;
   }
 
