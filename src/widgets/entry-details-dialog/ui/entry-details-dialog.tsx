@@ -6,6 +6,7 @@ import { EntryAvatar, formatUpdatedAt, isSecret, isStalePassword } from "@/entit
 import { revealNote, revealPassword, revealTotp } from "@/features/reveal-credential";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/shared/ui/dialog";
 import type { EntryMeta } from "@/shared/api/device/protocol";
 import { describeError } from "@/shared/lib/errors";
 import { groupTotp } from "@/shared/lib/totp";
@@ -48,16 +49,13 @@ export function EntryDetailsDialog({
 
   useEffect(() => {
     alive.current = true;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
     return () => {
       alive.current = false;
       clearInterval(timer.current); // yopilganda parol state bilan birga xotiradan o'chadi
       clearTimeout(noteTimer.current);
       clearInterval(totpTimer.current); // kod ham state bilan birga o'chadi
-      window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   const reveal = async () => {
     setBusy(true);
@@ -130,21 +128,14 @@ export function EntryDetailsDialog({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in-0 duration-200"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Yozuv tafsilotlari"
-        className="w-full max-w-md overflow-hidden rounded-xl border bg-card shadow-xl animate-in fade-in-0 zoom-in-95 duration-200"
-      >
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent showCloseButton={false} className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogDescription className="sr-only">Yozuv tafsilotlari</DialogDescription>
         <div className="flex items-center gap-3 border-b px-5 py-4">
           <EntryAvatar entry={entry} className="size-10" />
           <div className="grid min-w-0 flex-1">
             <span className="flex items-center gap-2">
-              <h2 className="truncate text-base font-semibold tracking-tight">{entry.title || entry.site}</h2>
+              <DialogTitle className="truncate text-base font-semibold tracking-tight">{entry.title || entry.site}</DialogTitle>
               {secret && <Badge variant="secondary">Maxfiy</Badge>}
             </span>
             {!secret && entry.title && <span className="truncate text-xs text-muted-foreground">{entry.site}</span>}
@@ -319,8 +310,8 @@ export function EntryDetailsDialog({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
