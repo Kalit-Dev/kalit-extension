@@ -16,7 +16,7 @@ import {
 export type { PendingConfirm, Phase };
 
 /**
- * Side panel tomonidagi ko'zgu. Haqiqiy qurilma ulanishi va holat engine'da (offscreen hujjat);
+ * Popup tomonidagi ko'zgu. Haqiqiy qurilma ulanishi va holat engine'da (offscreen hujjat);
  * bu store engine holatini aks ettiradi va amallarni unga yuboradi.
  */
 interface DeviceStore extends EngineSnapshot {
@@ -35,8 +35,6 @@ interface DeviceStore extends EngineSnapshot {
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
   revokeHost(slot: number): Promise<void>;
-  /** Faqat demo rejim: jismoniy tugmani simulyatsiya qiladi. */
-  press(kind: "short" | "long"): void;
 }
 
 const initial: EngineSnapshot = {
@@ -95,13 +93,12 @@ export const useDevice = create<DeviceStore>()((set) => {
     updateEntry: (id, patch) => call<EntryMeta>("updateEntry", id, patch),
     listHosts: () => call<HostInfo[]>("listHosts"),
     revokeHost: (slot) => call("revokeHost", slot),
-    press: (kind) => void call("press", kind).catch(() => undefined),
   };
 });
 
 export type { Status };
 
-/** Side panel ochilganda: engine holatini olish va yangilanishlarga obuna bo'lish. */
+/** Popup ochilganda: engine holatini olish va yangilanishlarga obuna bo'lish. */
 export function startSync(): void {
   chrome.runtime.onMessage.addListener((m: Partial<StateEvent>, sender) => {
     if (sender.id === chrome.runtime.id && !sender.tab && m?.type === STATE_EVENT && m.state) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Content script / overlay iframe → side panel (hub) xabarlari.
+ * Content script / overlay iframe → popup (hub) xabarlari.
  * Origin hech qachon payload'dan olinmaydi — faqat `sender.tab.url` dan.
  */
 export const HubRequest = z.discriminatedUnion("type", [
@@ -40,7 +40,7 @@ export interface PendingSaveResponse {
 
 export type HubResult = { ok: true } | { ok: false; error: string };
 
-/** Side panel → content script: formani to'ldirish. */
+/** Popup → content script: formani to'ldirish. */
 export interface ApplyMessage {
   type: "kalit:apply";
   username: string;

@@ -2,8 +2,8 @@ import type { ConfirmInfo, EntryMeta, Status } from "@/device/protocol";
 import type { TransportKind } from "@/device/transport";
 
 /**
- * Engine (offscreen hujjat) <-> side panel shartnomasi.
- * Engine qurilma ulanishi, Noise sessiyasi va hub'ning egasi; side panel faqat UI.
+ * Engine (offscreen hujjat) <-> popup shartnomasi.
+ * Engine qurilma ulanishi, Noise sessiyasi va hub'ning egasi; popup faqat UI.
  */
 export type Phase = "disconnected" | "connecting" | "pairing" | "factory" | "locked" | "unlocked";
 
@@ -11,7 +11,7 @@ export interface PendingConfirm extends ConfirmInfo {
   expiresAt: number;
 }
 
-/** Side panel ko'zgusi: faqat serializatsiya qilinadigan holat (parollar yo'q). */
+/** Popup ko'zgusi: faqat serializatsiya qilinadigan holat (parollar yo'q). */
 export interface EngineSnapshot {
   kind: TransportKind | null;
   phase: Phase;
@@ -39,7 +39,6 @@ export const ENGINE_OPS = [
   "listHosts",
   "revokeHost",
   "forgetDevice",
-  "press",
 ] as const;
 export type EngineOp = (typeof ENGINE_OPS)[number];
 

@@ -1,6 +1,6 @@
-import { Lock, Settings } from "lucide-react";
+import { Lock } from "lucide-react";
 import { useEffect } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Logo } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +15,10 @@ import { ConfirmOverlay } from "./confirm-overlay";
 const ROUTES: Record<Phase, string[]> = {
   disconnected: ["/connect"],
   connecting: ["/connect"],
-  pairing: ["/pair"],
-  factory: ["/setup", "/setup/done"],
+  pairing: ["/connect"],
+  factory: ["/connect"],
   locked: ["/unlock"],
-  unlocked: ["/vault", "/vault/new", "/settings"],
+  unlocked: ["/vault"],
 };
 
 const STATUS: Record<Phase, { label: string; dot: string }> = {
@@ -54,16 +54,11 @@ export function AppShell() {
         <Badge variant="outline" className="ml-auto font-normal text-muted-foreground">
           <span className={cn("size-1.5 rounded-full", status.dot)} />
           {status.label}
-          {kind && <span className="text-muted-foreground/60">· {kind === "usb" ? "USB" : "Demo"}</span>}
+          {kind && <span className="text-muted-foreground/60">· USB</span>}
         </Badge>
 
         {phase === "unlocked" && (
           <div className="flex">
-            <Button variant="ghost" size="icon-sm" asChild>
-              <Link to="/settings" aria-label="Sozlamalar">
-                <Settings />
-              </Link>
-            </Button>
             <Button
               variant="ghost"
               size="icon-sm"

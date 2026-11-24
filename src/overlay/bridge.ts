@@ -9,7 +9,7 @@ export function post(message: Payload) {
 
 export const closeOverlay = () => post({ type: "close" });
 
-/** Iframe → side panel hub. Panel yopiq bo'lsa "NO_PANEL". */
+/** Iframe → popup hub. Panel yopiq bo'lsa "NO_PANEL". */
 export async function hub<T>(msg: HubRequest): Promise<T> {
   let res: unknown;
   try {

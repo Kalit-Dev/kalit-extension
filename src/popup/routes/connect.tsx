@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SerialTransport } from "@/device/serial-transport";
-import type { TransportKind } from "@/device/transport";
 import { forgetDevice } from "@/device/keys";
 import { describeError, errorCode } from "@/lib/errors";
 import { useDevice } from "@/store/device-store";
@@ -14,15 +13,15 @@ export function ConnectPage() {
   const busy = useDevice((s) => s.phase === "connecting");
   const supported = SerialTransport.isSupported();
 
-  const run = async (kind: TransportKind) => {
+  const run = async () => {
     try {
       // Ruxsat berilgan port bor bo'lsa — jim ulanamiz. Yo'q bo'lsa — faqat shunda ruxsat tab'i ochiladi
-      // (Brave side panel'da tanlash oynasi chiqmaydi).
-      if (kind === "usb" && !(await SerialTransport.fromGranted())) {
+      // (popup'da tanlash oynasi chiqmaydi).
+      if (!(await SerialTransport.fromGranted())) {
         void chrome.tabs.create({ url: chrome.runtime.getURL("grant.html") });
         return;
       }
-      await connect(kind);
+      await connect("usb");
     } catch (e) {
       toast.error("Ulanib bo'lmadi", {
         description: e instanceof DOMException ? e.message : describeError(e),
@@ -41,7 +40,7 @@ export function ConnectPage() {
       description="Kalit qurilmasini USB orqali kompyuterga ulang. Parollaringiz faqat qurilmada saqlanadi."
     >
       <div className="grid gap-2">
-        <Button size="lg" disabled={!supported || busy} onClick={() => run("usb")}>
+        <Button size="lg" disabled={!supported || busy} onClick={run}>
           {busy ? <Loader2 className="animate-spin" /> : <Usb />}
           USB orqali ulash
         </Button>
@@ -56,15 +55,6 @@ export function ConnectPage() {
           <p className="text-xs text-destructive">Bu brauzer Web Serial API'ni qo'llab-quvvatlamaydi.</p>
         )}
       </div>
-
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => run("mock")}
-        className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-      >
-        Qurilmasiz demo rejimda sinab ko'rish
-      </button>
     </Screen>
   );
 }

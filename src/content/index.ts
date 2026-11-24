@@ -22,7 +22,7 @@ async function ask<T>(msg: HubRequest): Promise<T | null> {
   try {
     return ((await chrome.runtime.sendMessage(msg)) as T | undefined) ?? null;
   } catch {
-    return null; // side panel yopiq
+    return null; // popup yopiq
   }
 }
 
@@ -71,7 +71,7 @@ window.addEventListener("message", (e: MessageEvent<OverlayMessage>) => {
   if (e.data.type === "close") overlay.hide();
 });
 
-// ── Side panel → content: to'ldirish ──────────────────────────────────────────
+// ── Popup → content: to'ldirish ──────────────────────────────────────────
 chrome.runtime.onMessage.addListener((raw: unknown, sender) => {
   if (sender.id !== chrome.runtime.id) return;
   const msg = raw as ApplyMessage;

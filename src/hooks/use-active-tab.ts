@@ -8,7 +8,7 @@ export interface ActiveTab {
   site: string | null;
 }
 
-/** Side panel joylashgan oynadagi faol tab. */
+/** Popup joylashgan oynadagi faol tab. */
 export function useActiveTab(): ActiveTab | null {
   const [tab, setTab] = useState<ActiveTab | null>(null);
 

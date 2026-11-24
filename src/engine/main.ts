@@ -14,9 +14,9 @@ import {
 } from "./protocol";
 
 /**
- * Engine: offscreen hujjatda yashaydi — brauzer ochiq ekan, side panel yopiq bo'lsa ham.
+ * Engine: offscreen hujjatda yashaydi — brauzer ochiq ekan, popup yopiq bo'lsa ham.
  * Qurilma ulanishi (Web Serial), Noise sessiyasi, holat va content script hub'i shu yerda.
- * Side panel faqat UI: holat ko'zgusini oladi va buyruqlarni shu yerga yuboradi.
+ * Popup faqat UI: holat ko'zgusini oladi va buyruqlarni shu yerga yuboradi.
  */
 
 const snapshot = (): EngineSnapshot => {
@@ -26,7 +26,7 @@ const snapshot = (): EngineSnapshot => {
 
 const broadcast = () => {
   const event: StateEvent = { type: STATE_EVENT, state: snapshot() };
-  chrome.runtime.sendMessage(event).catch(() => undefined); // tinglovchi (side panel) bo'lmasligi mumkin
+  chrome.runtime.sendMessage(event).catch(() => undefined); // tinglovchi (popup) bo'lmasligi mumkin
 };
 useDevice.subscribe(broadcast);
 
@@ -52,7 +52,6 @@ async function run({ op, args }: EngineRequest): Promise<unknown> {
     listHosts: s.listHosts,
     revokeHost: s.revokeHost,
     forgetDevice: s.forgetDevice,
-    press: s.press,
   };
   return (handlers[op] as (...a: unknown[]) => unknown)(...args);
 }
@@ -60,7 +59,7 @@ async function run({ op, args }: EngineRequest): Promise<unknown> {
 const MANAGER_URL = chrome.runtime.getURL("manager.html");
 
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
-  // Faqat extension'ning tab'siz sahifalari (side panel, background) va manager.html tab'i.
+  // Faqat extension'ning tab'siz sahifalari (popup, background) va manager.html tab'i.
   // Content script / overlay / grant tab'lari rad etiladi (ularning sender.url'i boshqa).
   if (sender.id !== chrome.runtime.id || !isEngineRequest(raw)) return;
   if (sender.tab && !(sender.url === MANAGER_URL || sender.url?.startsWith(MANAGER_URL + "#"))) return;

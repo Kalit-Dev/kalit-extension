@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { DeviceClient, DeviceError, type ClientErrorCode } from "@/device/client";
 import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/device/keys";
-import { MockTransport } from "@/device/mock-transport";
 import type { AddEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
 import { SecureTransport } from "@/device/secure-transport";
 import { SerialTransport } from "@/device/serial-transport";
@@ -41,8 +40,6 @@ interface DeviceStore {
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
   revokeHost(slot: number): Promise<void>;
-  /** Faqat demo rejim: jismoniy tugmani simulyatsiya qiladi. */
-  press(kind: "short" | "long"): void;
 }
 
 const initialState = {
@@ -57,9 +54,6 @@ const initialState = {
 
 const SECURE_ERRORS = new Set(["DEVICE_KEY_CHANGED", "PROTOCOL", "TIMEOUT"]);
 const hostName = () => `Chrome · ${navigator.platform || "PC"}`.slice(0, 64);
-
-/** Demo rejimdagi qurilma (tugmani simulyatsiya qilish uchun). */
-let mock: MockTransport | null = null;
 
 export const useDevice = create<DeviceStore>()((set, get) => {
   const client = () => {
@@ -76,10 +70,8 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       set({ phase: "connecting" });
       let secure: SecureTransport | null = null;
       try {
-        let raw: RawTransport | null;
-        if (kind === "mock") raw = mock = new MockTransport();
-        // Tanlash oynasi side panel'da ochiladi; engine faqat ruxsat berilgan portni ochadi.
-        else raw = await SerialTransport.fromGranted();
+        // Ruxsat grant.html tab'ida olinadi; engine faqat ruxsat berilgan portni ochadi.
+        const raw: RawTransport | null = await SerialTransport.fromGranted();
         if (!raw) {
           set({ phase: "disconnected" });
           if (!silent) throw new DeviceError("NO_PORT");
@@ -87,9 +79,8 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         }
         if (!silent && kind === "usb") void kvSet("autoConnect", true);
         secure = new SecureTransport(raw, await getHostKeyPair(), {
-          // Demo qurilma har safar yangi kalit yaratadi: uni pin qilsak haqiqiy qurilma DEVICE_KEY_CHANGED beradi.
-          pinnedDeviceKey: kind === "mock" ? async () => null : getPinnedDeviceKey,
-          pinDeviceKey: kind === "mock" ? async () => undefined : pinDeviceKey,
+          pinnedDeviceKey: getPinnedDeviceKey,
+          pinDeviceKey,
           hostName: hostName(),
         });
         try {
@@ -152,7 +143,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       } catch (e) {
         if (e instanceof DeviceError && e.code === "WIPED") {
           // Zavod holati: qurilma yangi kalit yaratdi. Eski pin'ni unutib ajratamiz, keyingi ulanish toza bo'ladi.
-          if (get().kind !== "mock") await forgetDevice();
+          await forgetDevice();
           await get().client?.transport.close().catch(() => undefined);
           set({ ...initialState });
         } else {
@@ -190,7 +181,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         await client().call("CHANGE_MASTER", { oldPassword, newPassword });
       } catch (e) {
         if (e instanceof DeviceError && e.code === "WIPED") {
-          if (get().kind !== "mock") await forgetDevice();
+          await forgetDevice();
           await get().client?.transport.close().catch(() => undefined);
           set({ ...initialState });
         } else {
@@ -217,9 +208,5 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     },
 
     forgetDevice,
-
-    press(kind) {
-      if (get().kind === "mock") mock?.press(kind);
-    },
   };
 });

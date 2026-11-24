@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { describeError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
-import { ConfirmOverlay } from "@/sidepanel/components/confirm-overlay";
+import { ConfirmOverlay } from "@/popup/components/confirm-overlay";
 import { useDevice, type Phase } from "@/store/device-store";
 
 const FLOW: Record<Exclude<Phase, "unlocked">, string[]> = {
@@ -61,7 +61,7 @@ export function ManagerShell() {
     <Badge variant="outline" className="font-normal text-muted-foreground">
       <span className={cn("size-1.5 rounded-full", status.dot)} />
       {status.label}
-      {kind && <span className="text-muted-foreground/60">· {kind === "usb" ? "USB" : "Demo"}</span>}
+      {kind && <span className="text-muted-foreground/60">· USB</span>}
     </Badge>
   );
 

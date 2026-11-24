@@ -2,13 +2,11 @@ import { KV_KEYS, type KvRequest } from "@/lib/kv";
 import type { ApplyMessage } from "@/lib/messages";
 import type { BackgroundRequest, EngineRequest, TabRemovedEvent } from "@/engine/protocol";
 
-// Background service worker: toolbar ikonkasi side panel'ni ochadi, engine (offscreen hujjat) ni tirik tutadi
+// Background service worker: engine (offscreen hujjat) ni tirik tutadi
 // va offscreen'da yo'q API'larni (chrome.storage, chrome.tabs, chrome.idle) engine uchun bajaradi.
 // Qurilma ulanishi service worker'da emas: u har ~30 s da to'xtatiladi, Noise sessiyasi yo'qolardi.
 
 const OFFSCREEN_URL = chrome.runtime.getURL("offscreen.html");
-
-void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 let ensuring: Promise<void> | null = null;
 function ensureEngine(): Promise<void> {
@@ -18,7 +16,7 @@ function ensureEngine(): Promise<void> {
       await chrome.offscreen.createDocument({
         url: "offscreen.html",
         reasons: [chrome.offscreen.Reason.WORKERS],
-        justification: "Keeps the USB serial connection to the Kalit device alive while the side panel is closed.",
+        justification: "Keeps the USB serial connection to the Kalit device alive while the popup is closed.",
       });
     }
   })().finally(() => (ensuring = null));
@@ -26,7 +24,6 @@ function ensureEngine(): Promise<void> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   void ensureEngine();
 });
 chrome.runtime.onStartup.addListener(() => void ensureEngine());

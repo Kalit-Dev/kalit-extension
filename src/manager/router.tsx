@@ -1,8 +1,8 @@
 import { createHashRouter } from "react-router";
-import { ConnectPage } from "@/sidepanel/routes/connect";
-import { PairPage } from "@/sidepanel/routes/pair";
-import { SetupDonePage, SetupPage } from "@/sidepanel/routes/setup";
-import { UnlockPage } from "@/sidepanel/routes/unlock";
+import { ConnectPage } from "@/popup/routes/connect";
+import { PairPage } from "@/popup/routes/pair";
+import { SetupDonePage, SetupPage } from "@/popup/routes/setup";
+import { UnlockPage } from "@/popup/routes/unlock";
 import { ManagerShell } from "./shell";
 import { EntryFormPage } from "./pages/entry-form";
 import { HostsPage } from "./pages/hosts";

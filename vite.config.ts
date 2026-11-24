@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-// Side panel, overlay (iframe) va background service worker.
+// Popup, manager, overlay (iframe) va background service worker.
 // Content script alohida IIFE sifatida yig'iladi: vite.content.config.ts
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
     sourcemap: mode === "development" ? "inline" : false,
     rollupOptions: {
       input: {
-        sidepanel: r("./sidepanel.html"),
+        popup: r("./popup.html"),
         overlay: r("./overlay.html"),
         manager: r("./manager.html"),
         grant: r("./grant.html"),

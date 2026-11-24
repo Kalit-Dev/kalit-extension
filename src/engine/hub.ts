@@ -11,7 +11,7 @@ import { useDevice } from "./device-store";
 import type { BackgroundRequest, TabRemovedEvent } from "./protocol";
 
 /**
- * Engine (offscreen hujjat) — xabarlar markazi (hub). Side panel yopiq bo'lsa ham ishlaydi.
+ * Engine (offscreen hujjat) — xabarlar markazi (hub). Popup yopiq bo'lsa ham ishlaydi.
  * Content script va overlay iframe'lar shu yerga murojaat qiladi.
  */
 

@@ -1,5 +1,4 @@
 import { Fingerprint } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { ConfirmAction } from "@/device/protocol";
 import { useCountdown } from "@/hooks/use-countdown";
@@ -18,8 +17,6 @@ const TITLES: Record<ConfirmAction, string> = {
 /** Qurilma tugma bosilishini kutayotganda butun panel ustida ko'rinadi. */
 export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
   const pending = useDevice((s) => s.pending);
-  const kind = useDevice((s) => s.kind);
-  const press = useDevice((s) => s.press);
   const remaining = useCountdown(pending?.expiresAt);
 
   if (!pending) return null;
@@ -62,18 +59,6 @@ export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
             <span className="tabular-nums">{Math.ceil(remaining / 1000)} s</span>
           </div>
         </div>
-
-        {kind === "mock" && (
-          <div className="grid grid-cols-2 gap-2 border-t pt-4">
-            <Button variant="outline" onClick={() => press("long")}>
-              Rad etish
-            </Button>
-            <Button onClick={() => press("short")}>Tasdiqlash</Button>
-            <p className="col-span-2 text-center text-[11px] text-muted-foreground">
-              Demo rejim: qurilma tugmasi simulyatsiyasi
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -10,7 +10,6 @@ import { PageTitle } from "./page-header";
 
 export function SettingsPage() {
   const status = useDevice((s) => s.status);
-  const kind = useDevice((s) => s.kind);
   const count = useDevice((s) => s.entries.length);
   const [never, setNever] = useState<string[]>([]);
   const [hostKey, setHostKey] = useState("");
@@ -24,7 +23,7 @@ export function SettingsPage() {
     <div className="grid max-w-2xl gap-8">
       <PageTitle title="Sozlamalar" />
       <Group title="Qurilma">
-        <Row label="Ulanish" value={kind === "usb" ? "USB" : "Demo (simulyator)"} />
+        <Row label="Ulanish" value="USB" />
         <Row label="Firmware" value={status?.firmware ?? "—"} mono />
         <Row label="Yozuvlar" value={String(count)} />
         <Row label="Bu kompyuter kaliti" value={hostKey} mono />

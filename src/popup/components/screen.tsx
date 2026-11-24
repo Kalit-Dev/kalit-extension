@@ -25,12 +25,3 @@ export function Screen({ icon: Icon, title, description, children }: ScreenProps
     </div>
   );
 }
-
-export function PageHeader({ title, back }: { title: string; back?: React.ReactNode }) {
-  return (
-    <div className="flex h-11 items-center gap-1 px-2">
-      {back}
-      <h1 className="text-sm font-semibold">{title}</h1>
-    </div>
-  );
-}

@@ -5,10 +5,9 @@
   "version": "0.1.0",
   "description": "Parollaringiz qurilmada qoladi. Har bir kirish — qurilmada tasdiq bilan.",
   "minimum_chrome_version": "116",
-  "action": { "default_title": "Kalit" },
-  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Kalit", "default_popup": "popup.html" },
   "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["sidePanel", "storage", "idle", "favicon", "offscreen"],
+  "permissions": ["storage", "idle", "favicon", "offscreen"],
   "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "content_scripts": [
     {
