@@ -18,8 +18,8 @@ export function SetupDonePage() {
   return (
     <Screen
       icon={ScrollText}
-      title="Recovery phrase'ni yozib oling"
-      description="Qurilma ekranida 24 ta so'z ko'rsatiladi. Master parolni unutsangiz, faqat shu so'zlar bilan tiklash mumkin."
+      title="Master parolni unutmang"
+      description="Master parolni tiklash imkoni yo'q. Unutsangiz yoki 10 marta noto'g'ri kiritsangiz, qurilma tozalanadi."
     >
       <RecoveryNotice />
     </Screen>

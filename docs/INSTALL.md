@@ -38,8 +38,9 @@ Qurilma bir vaqtda 4 tagacha kompyuterni eslab qoladi. Keraksizini Boshqaruv →
 ## 5. Qurilmani sozlash (yangi qurilma)
 
 1. "Master parol yarating" ekranida kamida 12 belgili master parol kiriting va takrorlang.
-2. Qurilma **recovery phrase** ko'rsatadi. Uni qog'ozga, tartibi bilan yozib oling; kompyuter yoki telefonga yozmang;
-   faqat o'zingiz biladigan xavfsiz joyda saqlang. Keyin **Yozib oldim** ni bosing.
+2. Master parolni tiklash imkoni **yo'q** (recovery phrase yo'q): uni qog'ozga yozib, xavfsiz joyda saqlang va
+   Sozlamalar → Zaxira orqali shifrlangan nusxa oling. Keyin **Tushundim** ni bosing.
+   Master parol unutilsa: qurilmani tozalang (10 ta noto'g'ri urinish yoki `docs/FLASHING.md`), yangi master parol yarating, so'ng Sozlamalar → Zaxira → **Tiklash** orqali `.kalit` faylini zaxira paroli bilan qaytaring.
 3. Endi qurilmani master parol bilan oching. Ekran qulflansa, qurilma ham qulflanadi.
 
 ## 6. Bitwarden'dan import

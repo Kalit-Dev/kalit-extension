@@ -175,7 +175,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     },
 
     async onboard(masterPassword) {
-      // Refresh bu yerda chaqirilmaydi: avval recovery phrase ekrani ko'rsatiladi.
+      // Refresh bu yerda chaqirilmaydi: avval master parol eslatmasi ekrani ko'rsatiladi.
       await client().call("ONBOARD", { masterPassword });
     },
 

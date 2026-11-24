@@ -5,12 +5,12 @@ import { describeError } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 
 const TIPS = [
-  "So'zlarni qog'ozga, tartibi bilan yozing",
-  "Hech qachon kompyuter yoki telefonga yozmang",
-  "Xavfsiz, faqat o'zingiz biladigan joyda saqlang",
+  "Master parolni qog'ozga yozib, xavfsiz joyda saqlang",
+  "Uzun va takrorlanmaydigan parol tanlang (5-6 ta tasodifiy so'z)",
+  "Qurilmani ochgach, Sozlamalar → Zaxira orqali shifrlangan nusxa oling",
 ];
 
-/** Recovery phrase eslatmasi va "yozib oldim" tasdig'i. */
+/** Master parol eslatmasi va tasdig'i (qurilmada recovery phrase yo'q). */
 export function RecoveryNotice() {
   const refresh = useDevice((s) => s.refresh);
   const [busy, setBusy] = useState(false);
@@ -34,7 +34,7 @@ export function RecoveryNotice() {
           setBusy(false);
         }}
       >
-        Yozib oldim
+        Tushundim
       </Button>
     </div>
   );
