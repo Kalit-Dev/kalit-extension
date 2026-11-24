@@ -1,6 +1,6 @@
 export type TransportKind = "usb" | "mock";
 
-/** Baytli kadrlarni tashiydi (COBS/CRC allaqachon yechilgan). USB, BLE, mock shu interfeysni amalga oshiradi. */
+/** Baytli kadrlarni tashiydi (COBS/CRC allaqachon yechilgan). USB va mock shu interfeysni amalga oshiradi. */
 export interface RawTransport {
   readonly kind: TransportKind;
   open(): Promise<void>;
