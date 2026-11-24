@@ -34,6 +34,10 @@ export const ENGINE_OPS = [
   "getCredential",
   "addEntry",
   "deleteEntry",
+  "changeMaster",
+  "updateEntry",
+  "listHosts",
+  "revokeHost",
   "forgetDevice",
   "press",
 ] as const;

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { DeviceClient, DeviceError, type ClientErrorCode } from "@/device/client";
 import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/device/keys";
 import { MockTransport } from "@/device/mock-transport";
-import type { AddEntryParams, Credential, EntryMeta, Status } from "@/device/protocol";
+import type { AddEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
 import { SecureTransport } from "@/device/secure-transport";
 import { SerialTransport } from "@/device/serial-transport";
 import type { RawTransport, TransportKind } from "@/device/transport";
@@ -37,6 +37,10 @@ interface DeviceStore {
   /** Pin qilingan qurilma kalitini unutadi (DEVICE_KEY_CHANGED dan keyin). */
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
+  changeMaster(oldPassword: string, newPassword: string): Promise<void>;
+  updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
+  listHosts(): Promise<HostInfo[]>;
+  revokeHost(slot: number): Promise<void>;
   /** Faqat demo rejim: jismoniy tugmani simulyatsiya qiladi. */
   press(kind: "short" | "long"): void;
 }
@@ -179,6 +183,37 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     async deleteEntry(id) {
       await client().call("DELETE_ENTRY", { id });
       set((s) => ({ entries: s.entries.filter((e) => e.id !== id) }));
+    },
+
+    async changeMaster(oldPassword, newPassword) {
+      try {
+        await client().call("CHANGE_MASTER", { oldPassword, newPassword });
+      } catch (e) {
+        if (e instanceof DeviceError && e.code === "WIPED") {
+          if (get().kind !== "mock") await forgetDevice();
+          await get().client?.transport.close().catch(() => undefined);
+          set({ ...initialState });
+        } else {
+          await get().refresh().catch(() => undefined); // urinishlar sonini yangilash
+        }
+        throw e;
+      }
+      await get().refresh().catch(() => undefined);
+    },
+
+    async updateEntry(id, patch) {
+      const { entry } = await client().call("UPDATE_ENTRY", { id, ...patch });
+      set((s) => ({ entries: s.entries.map((e) => (e.id === entry.id ? entry : e)) }));
+      return entry;
+    },
+
+    async listHosts() {
+      return (await client().call("LIST_HOSTS", {})).hosts;
+    },
+
+    async revokeHost(slot) {
+      // Joriy host bekor qilinsa qurilma CLOSED yuboradi: onClose holatni tozalaydi.
+      await client().call("REVOKE_HOST", { slot });
     },
 
     forgetDevice,

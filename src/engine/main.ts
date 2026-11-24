@@ -47,15 +47,23 @@ async function run({ op, args }: EngineRequest): Promise<unknown> {
     getCredential: s.getCredential,
     addEntry: s.addEntry,
     deleteEntry: s.deleteEntry,
+    changeMaster: s.changeMaster,
+    updateEntry: s.updateEntry,
+    listHosts: s.listHosts,
+    revokeHost: s.revokeHost,
     forgetDevice: s.forgetDevice,
     press: s.press,
   };
   return (handlers[op] as (...a: unknown[]) => unknown)(...args);
 }
 
+const MANAGER_URL = chrome.runtime.getURL("manager.html");
+
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
-  // Faqat extension'ning tab'siz sahifalari (side panel, background). Content script/overlay/grant tab emas.
-  if (sender.id !== chrome.runtime.id || sender.tab || !isEngineRequest(raw)) return;
+  // Faqat extension'ning tab'siz sahifalari (side panel, background) va manager.html tab'i.
+  // Content script / overlay / grant tab'lari rad etiladi (ularning sender.url'i boshqa).
+  if (sender.id !== chrome.runtime.id || !isEngineRequest(raw)) return;
+  if (sender.tab && !(sender.url === MANAGER_URL || sender.url?.startsWith(MANAGER_URL + "#"))) return;
   run(raw).then(
     (value): EngineReply => ({ ok: true, value: value ?? null, state: snapshot() }),
     (e: unknown): EngineReply => ({

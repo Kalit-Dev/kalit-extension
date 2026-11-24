@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => ({
       input: {
         sidepanel: r("./sidepanel.html"),
         overlay: r("./overlay.html"),
+        manager: r("./manager.html"),
         grant: r("./grant.html"),
         offscreen: r("./offscreen.html"),
         background: r("./src/background/index.ts"),

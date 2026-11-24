@@ -55,7 +55,7 @@ export type Status = z.infer<typeof Status>;
 export const Credential = z.object({ username: z.string(), password: z.string() });
 export type Credential = z.infer<typeof Credential>;
 
-export const ConfirmAction = z.enum(["pair", "fill", "save", "delete"]);
+export const ConfirmAction = z.enum(["pair", "fill", "save", "delete", "master", "update", "revoke"]);
 export type ConfirmAction = z.infer<typeof ConfirmAction>;
 
 export const ConfirmInfo = z.object({
@@ -78,6 +78,26 @@ export const AddEntryParams = z.object({
   generateLength: z.number().int().min(12).max(64).optional(),
 });
 export type AddEntryParams = z.infer<typeof AddEntryParams>;
+
+export const UpdateEntryParams = z
+  .object({
+    id: z.string(),
+    title: z.string().max(64).optional(),
+    username: z.string().min(1).max(256).optional(),
+    password: z.string().min(1).max(512).optional(),
+  })
+  .refine((p) => p.title !== undefined || p.username !== undefined || p.password !== undefined, {
+    message: "at least one field",
+  });
+export type UpdateEntryParams = z.infer<typeof UpdateEntryParams>;
+
+export const HostInfo = z.object({
+  slot: z.number().int().min(0).max(3),
+  /** Host static key SHA-256'ining birinchi 8 bayti (16 hex belgi). */
+  fp: z.string().regex(/^[0-9a-f]{16}$/),
+  current: z.boolean(),
+});
+export type HostInfo = z.infer<typeof HostInfo>;
 
 const Empty = z.object({});
 
@@ -105,6 +125,15 @@ export const Commands = {
   },
   ADD_ENTRY: { params: AddEntryParams, result: z.object({ entry: EntryMeta }), confirm: true },
   DELETE_ENTRY: { params: z.object({ id: z.string() }), result: Empty, confirm: true },
+  // v0.3
+  CHANGE_MASTER: {
+    params: z.object({ oldPassword: z.string().min(1).max(128), newPassword: z.string().min(12).max(128) }),
+    result: Empty,
+    confirm: true,
+  },
+  UPDATE_ENTRY: { params: UpdateEntryParams, result: z.object({ entry: EntryMeta }), confirm: true },
+  LIST_HOSTS: { params: Empty, result: z.object({ hosts: z.array(HostInfo) }), confirm: false },
+  REVOKE_HOST: { params: z.object({ slot: z.number().int().min(0).max(3) }), result: Empty, confirm: true },
 } as const;
 
 export type CommandName = keyof typeof Commands;

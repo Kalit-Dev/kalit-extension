@@ -1,4 +1,5 @@
-import { bytesToHex } from "@noble/hashes/utils.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { decode, encode } from "./cbor";
 import { generateKeyPair, NoiseSession, pairingCode, type CipherState, type KeyPair } from "./noise";
 import { CONFIRM_TIMEOUT_MS, type ConfirmInfo, type DeviceState, type EntryMeta, type ErrorCode } from "./protocol";
@@ -35,6 +36,7 @@ interface Request {
   p?: Params;
 }
 
+const hostFingerprint = (keyHex: string) => bytesToHex(sha256(hexToBytes(keyHex))).slice(0, 16);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function generatePassword(length: number): string {
@@ -65,7 +67,8 @@ export class MockTransport implements RawTransport {
   private state: DeviceState = "FACTORY";
   private master: string | null = null;
   private attempts = MAX_ATTEMPTS;
-  private readonly trusted = new Map<string, string>(); // host static key (hex) → nom
+  private readonly slots: ({ key: string; name: string; seq: number } | null)[] = Array(MAX_HOSTS).fill(null);
+  private seq = 0;
   private readonly vault = new Map<string, { meta: EntryMeta; password: string }>();
 
   // Ulanish holati
@@ -155,11 +158,29 @@ export class MockTransport implements RawTransport {
   }
 
   private hostName = "";
+  private closeAfterResponse = false;
+
+  private hostSlot(): number {
+    return this.hostKey === null ? -1 : this.slots.findIndex((h) => h?.key === this.hostKey);
+  }
 
   private async process({ i, c, p = {} }: Request) {
-    await this.delay(c === "UNLOCK" || c === "ONBOARD" ? 700 : 60); // KDF kechikishi
+    await this.delay(c === "UNLOCK" || c === "ONBOARD" || c === "CHANGE_MASTER" ? 700 : 60); // KDF kechikishi
     try {
-      this.emitSecure({ i, ok: true, r: await this.handle(c, p) });
+      const r = await this.handle(c, p);
+      if (this.closeAfterResponse) {
+        // Joriy host bekor qilindi: javobdan keyin CLOSED hodisasi va kanal yopiladi.
+        this.closeAfterResponse = false;
+        const cipher = this.cipher;
+        this.noise = null;
+        this.cipher = null;
+        if (cipher) {
+          this.emitRaw(cipher.send.encrypt(encode({ i, ok: true, r })));
+          this.emitRaw(cipher.send.encrypt(encode({ ev: "CLOSED" })), () => this.closeListeners.forEach((l) => l()));
+        }
+        return;
+      }
+      this.emitSecure({ i, ok: true, r });
     } catch (e) {
       const code = e instanceof Fault ? e.code : "INTERNAL";
       if (code === "WIPED") {
@@ -175,7 +196,7 @@ export class MockTransport implements RawTransport {
   }
 
   private async handle(cmd: string, p: Params): Promise<unknown> {
-    const isTrusted = this.hostKey !== null && this.trusted.has(this.hostKey);
+    const isTrusted = this.hostSlot() >= 0;
     if (!isTrusted && cmd !== "GET_STATUS" && cmd !== "PAIR_HOST") throw new Fault("NOT_TRUSTED");
 
     switch (cmd) {
@@ -185,8 +206,9 @@ export class MockTransport implements RawTransport {
       case "PAIR_HOST": {
         if (isTrusted) return {};
         await this.confirm({ action: "pair", code: this.sas });
-        if (this.trusted.size >= MAX_HOSTS) this.trusted.delete(this.trusted.keys().next().value!); // eng eskisi chiqariladi
-        this.trusted.set(this.hostKey!, this.hostName);
+        let slot = this.slots.indexOf(null);
+        if (slot < 0) slot = this.slots.reduce((m, h, i) => (h!.seq < this.slots[m]!.seq ? i : m), 0); // eng eskisi chiqariladi
+        this.slots[slot] = { key: this.hostKey!, name: this.hostName, seq: this.seq++ };
         return {};
       }
 
@@ -263,6 +285,62 @@ export class MockTransport implements RawTransport {
         return {};
       }
 
+      case "CHANGE_MASTER": {
+        this.requireUnlocked();
+        const oldPw = String(p.oldPassword ?? "");
+        const newPw = String(p.newPassword ?? "");
+        if (newPw.length < 12 || newPw.length > 128 || oldPw.length < 1 || oldPw.length > 128) throw new Fault("INTERNAL");
+        // UNLOCK bilan bir xil: hisoblagich tekshiruvdan OLDIN kamayadi.
+        this.attempts--;
+        if (oldPw !== this.master) {
+          if (this.attempts <= 0) {
+            this.wipe();
+            throw new Fault("WIPED");
+          }
+          throw new Fault("BAD_PASSWORD");
+        }
+        this.attempts = MAX_ATTEMPTS;
+        await this.confirm({ action: "master" });
+        this.master = newPw; // vault yangi kalit bilan qayta shifrlanadi (mock'da parollar ochiq)
+        return {};
+      }
+
+      case "UPDATE_ENTRY": {
+        this.requireUnlocked();
+        const item = this.vault.get(String(p.id));
+        if (!item) throw new Fault("NOT_FOUND");
+        if (p.title === undefined && p.username === undefined && p.password === undefined) throw new Fault("INTERNAL");
+        const username = p.username !== undefined ? String(p.username) : item.meta.username;
+        const title = p.title !== undefined ? String(p.title) : item.meta.title ?? "";
+        const enc = new TextEncoder();
+        if (enc.encode(item.meta.site).length + enc.encode(username).length + enc.encode(title).length > META_BUDGET) {
+          throw new Fault("INVALID_STATE");
+        }
+        await this.confirm({ action: "update", site: item.meta.site, username });
+        item.meta = { ...item.meta, username, title: title || undefined, updatedAt: Date.now() };
+        if (p.password !== undefined) item.password = String(p.password);
+        return { entry: item.meta };
+      }
+
+      case "LIST_HOSTS": {
+        const cur = this.hostSlot();
+        const hosts: { slot: number; fp: string; current: boolean }[] = [];
+        this.slots.forEach((h, slot) => {
+          if (h) hosts.push({ slot, fp: hostFingerprint(h.key), current: slot === cur });
+        });
+        return { hosts };
+      }
+
+      case "REVOKE_HOST": {
+        const slot = Number(p.slot);
+        const host = Number.isInteger(slot) ? this.slots[slot] : null;
+        if (!host) throw new Fault("NOT_FOUND");
+        await this.confirm({ action: "revoke", site: `Slot ${slot}`, username: hostFingerprint(host.key).slice(0, 8) });
+        this.closeAfterResponse = slot === this.hostSlot();
+        this.slots[slot] = null;
+        return {};
+      }
+
       default:
         throw new Fault("INTERNAL");
     }
@@ -292,7 +370,7 @@ export class MockTransport implements RawTransport {
   /** Zavod holati: vault, pin qilingan hostlar va qurilma kaliti yo'qoladi. */
   private wipe() {
     this.vault.clear();
-    this.trusted.clear();
+    this.slots.fill(null);
     this.master = null;
     this.attempts = MAX_ATTEMPTS;
     this.state = "FACTORY";

@@ -138,4 +138,93 @@ describe("MockTransport behind Noise", () => {
     expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false });
     expect(await code(fresh.client.call("LIST", {}))).toBe("NOT_TRUSTED");
   });
+
+  describe("v0.3 management", () => {
+    const add = (client: DeviceClient) =>
+      client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw-one" });
+
+    it("CHANGE_MASTER re-keys: old password stops working, new one unlocks", async () => {
+      const { client } = await ready();
+      await client.call("CHANGE_MASTER", { oldPassword: "correct horse battery", newPassword: "another long passphrase" });
+      await client.call("LOCK", {});
+      expect(await code(client.call("UNLOCK", { masterPassword: "correct horse battery" }))).toBe("BAD_PASSWORD");
+      await client.call("UNLOCK", { masterPassword: "another long passphrase" });
+    });
+
+    it("CHANGE_MASTER with a wrong old password burns attempts and wipes at zero", async () => {
+      const { client, transport } = await ready();
+      const bad = { oldPassword: "wrong wrong wrong", newPassword: "another long passphrase" };
+      expect(await code(client.call("CHANGE_MASTER", bad))).toBe("BAD_PASSWORD");
+      expect((await client.call("GET_STATUS", {})).attemptsLeft).toBe(9);
+      let closed = 0;
+      transport.onClose(() => closed++);
+      let last: string | null = null;
+      for (let i = 0; i < 9; i++) last = await code(client.call("CHANGE_MASTER", bad));
+      expect(last).toBe("WIPED");
+      await new Promise((r) => setTimeout(r, 5));
+      expect(closed).toBe(1);
+    });
+
+    it("CHANGE_MASTER rejects short new passwords client-side", async () => {
+      const { client } = await ready();
+      await expect(client.call("CHANGE_MASTER", { oldPassword: "x", newPassword: "short" })).rejects.toThrow();
+    });
+
+    it("UPDATE_ENTRY changes username/title/password but never the site", async () => {
+      const { client } = await ready();
+      const { entry } = await add(client);
+      const { entry: upd } = await client.call("UPDATE_ENTRY", { id: entry.id, username: "vali", title: "Work", password: "pw-two" });
+      expect(upd).toMatchObject({ id: entry.id, site: "example.com", username: "vali", title: "Work" });
+      const cred = await client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://example.com" });
+      expect(cred).toEqual({ username: "vali", password: "pw-two" });
+      expect((await client.call("LIST", {})).entries[0]).toMatchObject({ username: "vali", title: "Work" });
+    });
+
+    it("UPDATE_ENTRY needs at least one field, a known id and respects the metadata budget", async () => {
+      const { client } = await ready();
+      const { entry } = await add(client);
+      await expect(client.call("UPDATE_ENTRY", { id: entry.id })).rejects.toThrow();
+      expect(await code(client.call("UPDATE_ENTRY", { id: "nope", title: "x" }))).toBe("NOT_FOUND");
+      expect(await code(client.call("UPDATE_ENTRY", { id: entry.id, username: "u".repeat(200) }))).toBe("INVALID_STATE");
+    });
+
+    it("LIST_HOSTS marks the current host; REVOKE_HOST of another host removes it", async () => {
+      const mock = new MockTransport({ fast: true });
+      const a = connect(mock);
+      await a.transport.open();
+      await a.client.call("PAIR_HOST", {});
+      await a.client.call("ONBOARD", { masterPassword: "correct horse battery" });
+      await a.transport.close();
+      const b = connect(mock);
+      await b.transport.open();
+      await b.client.call("PAIR_HOST", {});
+      const { hosts } = await b.client.call("LIST_HOSTS", {});
+      expect(hosts).toHaveLength(2);
+      expect(hosts.filter((h) => h.current)).toHaveLength(1);
+      expect(hosts.every((h) => /^[0-9a-f]{16}$/.test(h.fp))).toBe(true);
+      const other = hosts.find((h) => !h.current)!;
+      await b.client.call("REVOKE_HOST", { slot: other.slot });
+      expect((await b.client.call("LIST_HOSTS", {})).hosts).toHaveLength(1);
+      expect(await code(b.client.call("REVOKE_HOST", { slot: other.slot }))).toBe("NOT_FOUND");
+    });
+
+    it("revoking the current host answers, then closes the channel", async () => {
+      const { client, transport } = await ready();
+      const { hosts } = await client.call("LIST_HOSTS", {});
+      let closed = 0;
+      transport.onClose(() => closed++);
+      await client.call("REVOKE_HOST", { slot: hosts[0]!.slot });
+      await new Promise((r) => setTimeout(r, 5));
+      expect(closed).toBe(1);
+    });
+
+    it("vault commands require UNLOCKED, host commands do not (firmware parity)", async () => {
+      const { client } = await ready();
+      await client.call("LOCK", {});
+      expect(await code(client.call("UPDATE_ENTRY", { id: "x", title: "t" }))).toBe("LOCKED");
+      expect(await code(client.call("CHANGE_MASTER", { oldPassword: "a", newPassword: "b".repeat(12) }))).toBe("LOCKED");
+      const { hosts } = await client.call("LIST_HOSTS", {});
+      expect(hosts.length).toBeGreaterThan(0);
+    });
+  });
 });

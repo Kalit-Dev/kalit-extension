@@ -10,10 +10,13 @@ const TITLES: Record<ConfirmAction, string> = {
   fill: "Parolni berish",
   save: "Parolni saqlash",
   delete: "Yozuvni o'chirish",
+  master: "Master parolni almashtirish",
+  update: "Yozuvni yangilash",
+  revoke: "Hostni bekor qilish",
 };
 
 /** Qurilma tugma bosilishini kutayotganda butun panel ustida ko'rinadi. */
-export function ConfirmOverlay() {
+export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
   const pending = useDevice((s) => s.pending);
   const kind = useDevice((s) => s.kind);
   const press = useDevice((s) => s.press);
@@ -26,9 +29,9 @@ export function ConfirmOverlay() {
     <div
       role="alertdialog"
       aria-live="assertive"
-      className="absolute inset-0 z-50 flex items-end bg-background/70 backdrop-blur-sm animate-in fade-in-0"
+      className={`fixed inset-0 z-50 flex bg-background/70 backdrop-blur-sm animate-in fade-in-0 ${centered ? "items-center justify-center" : "items-end"}`}
     >
-      <div className="m-3 grid w-full gap-4 rounded-xl border bg-card p-5 shadow-lg animate-in slide-in-from-bottom-4 duration-300">
+      <div className={`m-3 grid w-full gap-4 ${centered ? "max-w-md" : ""}  rounded-xl border bg-card p-5 shadow-lg animate-in slide-in-from-bottom-4 duration-300`}>
         <div className="flex items-center gap-3">
           <span className="relative grid size-10 place-items-center rounded-full bg-primary/10">
             <span className="absolute inset-0 animate-ping rounded-full bg-primary/10" />

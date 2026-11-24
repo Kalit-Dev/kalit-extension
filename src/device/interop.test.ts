@@ -87,10 +87,10 @@ const code = async (p: Promise<unknown>) => {
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "0.1.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "0.2.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.1.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.2.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
     await client.call("PAIR_HOST", {});
@@ -119,6 +119,40 @@ describe.skipIf(!available)("interop with native firmware", () => {
     );
     await client.call("DELETE_ENTRY", { id: entry.id });
     expect((await client.call("LIST", {})).entries).toHaveLength(0);
+  }, 30_000);
+
+  it("v0.3 management: update entry, change master, list hosts, revoke", async () => {
+    const { client } = await start("accept");
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    const { entry } = await client.call("ADD_ENTRY", {
+      origin: "https://example.com",
+      site: "example.com",
+      username: "ali",
+      generateLength: 20,
+    });
+
+    const upd = await client.call("UPDATE_ENTRY", { id: entry.id, username: "vali", password: "n3w-Pass-Word-123" });
+    expect(upd.entry).toMatchObject({ id: entry.id, site: "example.com", username: "vali" });
+    const cred = await client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://example.com" });
+    expect(cred).toMatchObject({ username: "vali", password: "n3w-Pass-Word-123" });
+
+    expect(await code(client.call("CHANGE_MASTER", { oldPassword: "wrong password!!", newPassword: "another long master" }))).toBe(
+      "BAD_PASSWORD",
+    );
+    await client.call("CHANGE_MASTER", { oldPassword: "correct horse battery", newPassword: "another long master" });
+    await client.call("LOCK", {});
+    expect(await code(client.call("UNLOCK", { masterPassword: "correct horse battery" }))).toBe("BAD_PASSWORD");
+    await client.call("UNLOCK", { masterPassword: "another long master" });
+    expect((await client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://example.com" })).password).toBe(
+      "n3w-Pass-Word-123",
+    );
+
+    const { hosts } = await client.call("LIST_HOSTS", {});
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]).toMatchObject({ current: true });
+    expect(hosts[0]!.fp).toMatch(/^[0-9a-f]{16}$/);
+    await client.call("REVOKE_HOST", { slot: hosts[0]!.slot });
   }, 30_000);
 
   it("surfaces CONFIRM_PENDING for the pairing code and honours a rejection on the device", async () => {

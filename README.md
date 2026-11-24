@@ -11,7 +11,13 @@ npm run build        # yoki: npm run dev (watch rejimi)
 ```
 
 Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → `dist/` papkasi.
-Toolbar'dagi Kalit ikonkasi side panel'ni ochadi. Qurilma bo'lmasa — **demo rejim**.
+Toolbar'dagi Kalit ikonkasi side panel'ni ochadi (holat, tez ro'yxat, fill). To'liq boshqaruv uchun panelda **"Boshqaruvni ochish"** (`manager.html`, oddiy tab). Qurilma bo'lmasa — **demo rejim**.
+
+## Interfeyslar
+
+- **Side panel** — minimal: ulanish/qulf holati, qidiruv, login nusxalash, fill.
+- **Manager (`manager.html`)** — to'liq sahifa: **Parollar** (qidiruv, qo'shish, tahrirlash, o'chirish), **Hostlar** (pin qilingan kompyuterlar, bekor qilish), **Xavfsizlik** (master parolni o'zgartirish), **Sozlamalar** (qurilma ma'lumoti, "saqlanmasin" saytlari). Qurilmada tugma kutilganda markazda tasdiq modal'i chiqadi.
+- Engine faqat tab'siz extension sahifalaridan va aynan `manager.html` tab'idan RPC qabul qiladi; content script/overlay/grant rad etiladi.
 
 ## Arxitektura
 
@@ -43,7 +49,8 @@ src/
   device/      protocol.ts (zod kontrakt), client.ts, serial-transport.ts, mock-transport.ts
   store/       device-store.ts — side panel ko'zgusi (holat mashinasi: engine/device-store.ts)
   engine/      main.ts (offscreen entry, RPC), device-store.ts (holat mashinasi), hub.ts (content/overlay xabarlari), protocol.ts
-  sidepanel/   router.tsx, routes/*, components/* (faqat UI)
+  sidepanel/   router.tsx, routes/*, components/* (minimal panel: holat + tez ro'yxat)
+  manager/     main.tsx, router.tsx, shell.tsx, pages/* (to'liq boshqaruv sahifasi)
   background/  engine'ni tirik tutadi, storage/tabs/idle ko'prigi
   overlay/     inline-menu.tsx, save-prompt.tsx (sayt ichidagi iframe)
   content/     forms.ts, overlay.ts, index.ts
@@ -53,11 +60,11 @@ src/
 
 Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
-## Protokol (v0.2)
+## Protokol (v0.2 + v0.3)
 
 USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
 Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). Mantiqiy buyruqlar va sxemalar: `src/device/protocol.ts`.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. Mantiqiy buyruqlar va sxemalar: `src/device/protocol.ts`.
 Firmware: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware). Klassik ESP32 DevKit (CP210x/CH340) ham qo'llab-quvvatlanadi.
 
 Testlar: `pnpm test` (vitest).
@@ -67,6 +74,8 @@ Testlar: `pnpm test` (vitest).
 - [x] Noise_XX secure channel + CBOR
 - [ ] Parol o'zgarganini aniqlash → "Yangilansinmi?" oqimi
 - [ ] Multi-step login (email → keyingi sahifada parol)
+- [x] Boshqaruv buyruqlari v0.3 + to'liq sahifali manager
+- [ ] Chrome'da qo'lda tekshirish: manager ko'rinishi (yorug'/qorong'i, tor ekran), tab'dan USB ulanish, offscreen'da Web Serial
 - [ ] BLE transport (Web Bluetooth / native host)
 - [ ] Production build'da demo rejimni o'chirish
 
@@ -77,5 +86,6 @@ Testlar: `pnpm test` (vitest).
 3. Panelni oching → **USB orqali ulash** → ochilgan tab'da qurilmani tanlang. Panel ulanishi kerak.
 4. Master parol bilan oching. **Paneli yoping**, login formali sahifaga o'ting: maydonga fokus berganda taklif chiqishi kerak.
 5. Kabelni chiqarib qayta ulang: engine o'zi qayta ulanishi kerak (panelni oching — "Qulflangan"/"Ochiq").
-6. Brauzerni to'liq yoping va qayta oching: panel ochilmasdan ham ulanish tiklanishi kerak.
-7. Nosozlik bo'lsa: `*://extensions` → Kalit → **Inspect views: offscreen.html** → Console (`[kalit-engine]`, `[kalit-device]`).
+6. Manager'ni oching (panelda "Boshqaruvni ochish"): parol qo'shing, tahrirlang, master parolni almashtiring, qulflab qayta oching.
+7. Brauzerni to'liq yoping va qayta oching: panel ochilmasdan ham ulanish tiklanishi kerak.
+8. Nosozlik bo'lsa: `*://extensions` → Kalit → **Inspect views: offscreen.html** → Console (`[kalit-engine]`, `[kalit-device]`).

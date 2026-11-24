@@ -51,9 +51,11 @@ export class DeviceClient {
     const paramsSchema: z.ZodType = def.params;
     const resultSchema: z.ZodType = def.result;
     const id = ++this.seq;
-    const timeoutMs = def.confirm
+    const timeoutMs = cmd === "CHANGE_MASTER"
+      ? CONFIRM_TIMEOUT_MS + 2 * KDF_TIMEOUT_MS
+      : def.confirm
       ? CONFIRM_TIMEOUT_MS + 2_000
-      : cmd === "UNLOCK" || cmd === "ONBOARD"
+      : cmd === "UNLOCK" || cmd === "ONBOARD" || cmd === "CHANGE_MASTER"
         ? KDF_TIMEOUT_MS
         : REQUEST_TIMEOUT_MS;
 

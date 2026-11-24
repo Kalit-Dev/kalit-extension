@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { DeviceError, type ClientErrorCode } from "@/device/client";
-import type { AddEntryParams, Credential, EntryMeta, Status } from "@/device/protocol";
+import type { AddEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
 import type { TransportKind } from "@/device/transport";
 import {
   STATE_EVENT,
@@ -31,6 +31,10 @@ interface DeviceStore extends EngineSnapshot {
   addEntry(params: Omit<AddEntryParams, "site">): Promise<EntryMeta>;
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
+  changeMaster(oldPassword: string, newPassword: string): Promise<void>;
+  updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
+  listHosts(): Promise<HostInfo[]>;
+  revokeHost(slot: number): Promise<void>;
   /** Faqat demo rejim: jismoniy tugmani simulyatsiya qiladi. */
   press(kind: "short" | "long"): void;
 }
@@ -87,6 +91,10 @@ export const useDevice = create<DeviceStore>()((set) => {
     addEntry: (params) => call<EntryMeta>("addEntry", params),
     forgetDevice: () => call("forgetDevice"),
     deleteEntry: (id) => call("deleteEntry", id),
+    changeMaster: (oldPassword, newPassword) => call("changeMaster", oldPassword, newPassword),
+    updateEntry: (id, patch) => call<EntryMeta>("updateEntry", id, patch),
+    listHosts: () => call<HostInfo[]>("listHosts"),
+    revokeHost: (slot) => call("revokeHost", slot),
     press: (kind) => void call("press", kind).catch(() => undefined),
   };
 });

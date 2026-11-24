@@ -1,6 +1,5 @@
-import { Copy, KeyRound, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, KeyRound, Search } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router";
 import { toast } from "sonner";
 import { SiteAvatar } from "@/components/brand";
 import { Button } from "@/components/ui/button";
@@ -9,12 +8,12 @@ import type { EntryMeta } from "@/device/protocol";
 import { useActiveTab } from "@/hooks/use-active-tab";
 import { describeError } from "@/lib/errors";
 import { useDevice } from "@/store/device-store";
+import { openManager } from "@/manager/open-manager";
 import { applyToTab } from "../apply";
 
 export function VaultPage() {
   const entries = useDevice((s) => s.entries);
   const getCredential = useDevice((s) => s.getCredential);
-  const deleteEntry = useDevice((s) => s.deleteEntry);
   const tab = useActiveTab();
   const [query, setQuery] = useState("");
 
@@ -38,15 +37,6 @@ export function VaultPage() {
     }
   };
 
-  const remove = async (entry: EntryMeta) => {
-    try {
-      await deleteEntry(entry.id);
-      toast.success("O'chirildi");
-    } catch (e) {
-      toast.error(describeError(e));
-    }
-  };
-
   const copyUsername = async (entry: EntryMeta) => {
     await navigator.clipboard.writeText(entry.username);
     toast.success("Login nusxalandi");
@@ -61,20 +51,17 @@ export function VaultPage() {
         <div className="grid gap-1">
           <p className="text-sm font-medium">Hali parollar yo'q</p>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Saytga kirganingizda Kalit saqlashni taklif qiladi. Yoki qo'lda qo'shing.
+            Saytga kirganingizda Kalit saqlashni taklif qiladi. Qo'lda qo'shish — boshqaruv sahifasida.
           </p>
         </div>
-        <Button size="sm" asChild>
-          <Link to="/vault/new">
-            <Plus /> Qo'shish
-          </Link>
-        </Button>
+        <ManagerButton />
       </div>
     );
   }
 
   return (
     <div className="grid gap-4 p-3">
+      <ManagerButton />
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -86,17 +73,12 @@ export function VaultPage() {
             aria-label="Qidirish"
           />
         </div>
-        <Button size="icon" asChild>
-          <Link to="/vault/new" aria-label="Yangi yozuv">
-            <Plus />
-          </Link>
-        </Button>
       </div>
 
       {here.length > 0 && (
         <Section title={`Shu sayt · ${tab?.site}`}>
           {here.map((e) => (
-            <EntryRow key={e.id} entry={e} onFill={() => fill(e)} onCopy={() => copyUsername(e)} onDelete={() => remove(e)} />
+            <EntryRow key={e.id} entry={e} onFill={() => fill(e)} onCopy={() => copyUsername(e)} />
           ))}
         </Section>
       )}
@@ -104,7 +86,7 @@ export function VaultPage() {
       {rest.length > 0 && (
         <Section title={here.length ? "Boshqa yozuvlar" : `Barcha yozuvlar · ${rest.length}`}>
           {rest.map((e) => (
-            <EntryRow key={e.id} entry={e} onCopy={() => copyUsername(e)} onDelete={() => remove(e)} />
+            <EntryRow key={e.id} entry={e} onCopy={() => copyUsername(e)} />
           ))}
         </Section>
       )}
@@ -129,10 +111,9 @@ interface EntryRowProps {
   entry: EntryMeta;
   onFill?: () => void;
   onCopy: () => void;
-  onDelete: () => void;
 }
 
-function EntryRow({ entry, onFill, onCopy, onDelete }: EntryRowProps) {
+function EntryRow({ entry, onFill, onCopy }: EntryRowProps) {
   return (
     <div className="group flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-accent">
       <SiteAvatar site={entry.site} />
@@ -144,15 +125,6 @@ function EntryRow({ entry, onFill, onCopy, onDelete }: EntryRowProps) {
         <Button variant="ghost" size="icon-sm" onClick={onCopy} aria-label="Loginni nusxalash">
           <Copy />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onDelete}
-          aria-label="O'chirish"
-          className="hover:text-destructive"
-        >
-          <Trash2 />
-        </Button>
       </div>
       {onFill && (
         <Button size="sm" variant="secondary" onClick={onFill}>
@@ -160,5 +132,13 @@ function EntryRow({ entry, onFill, onCopy, onDelete }: EntryRowProps) {
         </Button>
       )}
     </div>
+  );
+}
+
+function ManagerButton() {
+  return (
+    <Button size="lg" className="w-full" onClick={() => void openManager()}>
+      <ExternalLink /> Boshqaruvni ochish
+    </Button>
   );
 }
