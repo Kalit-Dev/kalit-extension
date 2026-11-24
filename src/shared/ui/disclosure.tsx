@@ -47,7 +47,7 @@ export function Disclosure({ id, icon: Icon, title, summary, open, onToggle, chi
         role="region"
         aria-labelledby={`${id}-trigger`}
         hidden={!open}
-        className="animate-in px-6 pb-5 duration-200 fade-in-0 slide-in-from-top-1"
+        className="animate-in px-6 pt-2 pb-5 duration-200 fade-in-0 slide-in-from-top-1"
       >
         {children}
       </div>
