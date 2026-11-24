@@ -5,6 +5,8 @@ export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
   icon?: LucideIcon;
+  /** Yorliq yonida kichik son (masalan, toifadagi yozuvlar soni). */
+  count?: number;
 }
 
 interface SegmentedProps<T extends string> {
@@ -43,7 +45,7 @@ export function Segmented<T extends string>({
       )}
       style={fill ? { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` } : undefined}
     >
-      {options.map(({ value: v, label: text, icon: Icon }) => (
+      {options.map(({ value: v, label: text, icon: Icon, count }) => (
         <button
           key={v}
           type="button"
@@ -60,6 +62,11 @@ export function Segmented<T extends string>({
         >
           {Icon && <Icon className={compact ? "size-3.5" : "size-4"} />}
           {text}
+          {count !== undefined && (
+            <span className="text-xs font-normal tabular-nums opacity-60" aria-label={`${count} ta`}>
+              {count}
+            </span>
+          )}
         </button>
       ))}
     </div>
