@@ -89,10 +89,10 @@ const code = async (p: Promise<unknown>) => {
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "0.5.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "1.0.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.5.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "1.0.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
     await client.call("PAIR_HOST", {});
