@@ -93,7 +93,6 @@ Testlar: `pnpm test` (vitest).
 - [ ] Multi-step login (email → keyingi sahifada parol)
 - [x] Boshqaruv buyruqlari v0.3 + to'liq sahifali manager
 - [ ] Chrome'da qo'lda tekshirish: manager ko'rinishi (yorug'/qorong'i, tor ekran), tab'dan USB ulanish, offscreen'da Web Serial
-- [ ] BLE transport (Web Bluetooth / native host)
 - [x] Demo rejim olib tashlandi (`mock-transport.ts` faqat testlar uchun)
 
 ## Ulanishni toza tekshirish (QA)

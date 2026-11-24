@@ -1,13 +1,12 @@
-import { Bluetooth, Loader2, Usb } from "lucide-react";
+import { Loader2, Usb } from "lucide-react";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { forgetDevice } from "@/shared/api/device/keys";
 import { SerialTransport } from "@/shared/api/device/serial-transport";
 import { describeError, errorCode } from "@/shared/lib/errors";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 
-/** USB orqali ulanish tugmalari (Bluetooth — tez kunda). */
+/** USB orqali ulanish tugmasi. */
 export function ConnectDevice() {
   const connect = useDevice((s) => s.connect);
   const busy = useDevice((s) => s.phase === "connecting");
@@ -38,13 +37,6 @@ export function ConnectDevice() {
       <Button size="lg" disabled={!supported || busy} onClick={run}>
         {busy ? <Loader2 className="animate-spin" /> : <Usb />}
         USB orqali ulash
-      </Button>
-      <Button size="lg" variant="outline" disabled>
-        <Bluetooth />
-        Bluetooth
-        <Badge variant="secondary" className="ml-auto">
-          Tez kunda
-        </Badge>
       </Button>
       {!supported && <p className="text-xs text-destructive">Bu brauzer Web Serial API'ni qo'llab-quvvatlamaydi.</p>}
     </div>
