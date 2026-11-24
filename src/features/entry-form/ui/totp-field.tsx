@@ -2,6 +2,7 @@ import { KeyRound, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { UseFormReturn } from "react-hook-form";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Disclosure } from "@/shared/ui/disclosure";
 import { Input } from "@/shared/ui/input";
 import type { Values } from "../model/entry-schema";
@@ -79,12 +80,12 @@ export function TotpField({ form, installed, replacing, onReplace, onClearToggle
         </p>
         {installed && (
           <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              className="size-3.5 accent-[var(--color-primary)]"
-              {...form.register("clearTotp", {
-                onChange: (e: { target: { checked: boolean } }) => onClearToggle(e.target.checked),
-              })}
+            <Checkbox
+              checked={form.watch("clearTotp")}
+              onCheckedChange={(c) => {
+                form.setValue("clearTotp", c === true);
+                onClearToggle(c === true);
+              }}
             />
             2FA kalitini o'chirish
           </label>

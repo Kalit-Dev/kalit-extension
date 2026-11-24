@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/utils";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Segmented } from "@/shared/ui/segmented";
+import { Slider } from "@/shared/ui/slider";
 import {
   describeGenerator,
   generatorError,
@@ -44,15 +45,14 @@ function LengthControl({ id, label, value, min, max, invalid, onChange }: Length
     <div className="grid gap-2.5">
       <Label htmlFor={id}>{label}</Label>
       <div className="flex items-center gap-4">
-        <input
-          type="range"
+        <Slider
           aria-label={`${label} (slayder)`}
           min={min}
           max={max}
           step={1}
-          value={shown}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="h-1.5 min-w-0 flex-1 cursor-pointer accent-[var(--color-primary)]"
+          value={[shown]}
+          onValueChange={([n]) => onChange(n!)}
+          className="min-w-0 flex-1"
         />
         <Input
           id={id}

@@ -7,6 +7,7 @@ import { NOTE_MAX_BYTES, type EntryMeta } from "@/shared/api/device/protocol";
 import { describeError } from "@/shared/lib/errors";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Disclosure } from "@/shared/ui/disclosure";
 import { Textarea } from "@/shared/ui/textarea";
 import { noteBytes, type Values } from "../model/entry-schema";
@@ -96,7 +97,7 @@ export function NoteField({ form, entry }: Props) {
         </div>
         {hasStored && (
           <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" className="size-3.5 accent-[var(--color-primary)]" {...form.register("clearNote")} />
+            <Checkbox checked={form.watch("clearNote")} onCheckedChange={(c) => form.setValue("clearNote", c === true)} />
             Eslatmani o'chirish
           </label>
         )}

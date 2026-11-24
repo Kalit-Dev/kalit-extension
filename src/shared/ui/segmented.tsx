@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/shared/ui/toggle-group";
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -20,7 +21,7 @@ interface SegmentedProps<T extends string> {
   className?: string;
 }
 
-/** Segmentli tanlov (radiogroup). */
+/** Segmentli tanlov: shadcn ToggleGroup (single). Tanlangan elementni qayta bosish tanlovni olib tashlamaydi. */
 export function Segmented<T extends string>({
   label,
   value,
@@ -32,36 +33,29 @@ export function Segmented<T extends string>({
   className,
 }: SegmentedProps<T>) {
   return (
-    <div
-      role="radiogroup"
+    <ToggleGroup
+      type="single"
       aria-label={label}
-      className={cn(
-        "gap-1 rounded-lg border bg-muted/60 p-1",
-        fill ? "grid" : "inline-flex",
-        compact && "gap-0.5 rounded-md p-0.5",
-        className,
-      )}
-      style={fill ? { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` } : undefined}
+      value={value}
+      onValueChange={(v) => v && onChange(v as T)}
+      disabled={disabled}
+      spacing={1}
+      className={cn("rounded-lg border bg-muted/60 p-1", fill ? "w-full" : "w-fit", compact && "rounded-md p-0.5", className)}
     >
       {options.map(({ value: v, label: text, icon: Icon }) => (
-        <button
+        <ToggleGroupItem
           key={v}
-          type="button"
-          role="radio"
-          aria-checked={value === v}
-          disabled={disabled}
-          onClick={() => onChange(v)}
+          value={v}
           className={cn(
-            "flex items-center justify-center gap-2 rounded-md font-medium text-muted-foreground outline-none transition-all",
-            "hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
-            compact ? "rounded-[5px] px-2.5 py-0.5 text-xs" : "px-3 py-2 text-sm",
-            value === v && "bg-card text-foreground shadow-sm ring-1 ring-border",
+            "rounded-md text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-border",
+            fill && "flex-1",
+            compact ? "h-7 rounded-[5px] px-2.5 text-xs" : "h-9 px-3",
           )}
         >
           {Icon && <Icon className={compact ? "size-3.5" : "size-4"} />}
           {text}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
