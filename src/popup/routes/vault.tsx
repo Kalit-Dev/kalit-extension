@@ -8,6 +8,7 @@ import type { EntryMeta } from "@/device/protocol";
 import { useActiveTab } from "@/hooks/use-active-tab";
 import { describeError } from "@/lib/errors";
 import { useDevice } from "@/store/device-store";
+import { isSecret } from "@/manager/api";
 import { openManager } from "@/manager/open-manager";
 import { applyToTab } from "../apply";
 
@@ -19,7 +20,8 @@ export function VaultPage() {
 
   const { here, rest } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = [...entries]
+    const list = entries
+      .filter((e) => !isSecret(e))
       .filter((e) => !q || `${e.site} ${e.username} ${e.title ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => a.site.localeCompare(b.site) || a.username.localeCompare(b.username));
     const site = tab?.site;
@@ -42,9 +44,9 @@ export function VaultPage() {
     toast.success("Login nusxalandi");
   };
 
-  if (entries.length === 0) {
+  if (entries.every(isSecret)) {
     return (
-      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-8 text-center animate-in fade-in-0">
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-8 text-center">
         <span className="grid size-11 place-items-center rounded-xl border bg-muted/50">
           <KeyRound className="size-5" />
         </span>

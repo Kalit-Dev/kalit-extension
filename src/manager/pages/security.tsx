@@ -10,7 +10,6 @@ import { describeError, errorCode } from "@/lib/errors";
 import { passwordStrength } from "@/lib/password-strength";
 import { cn } from "@/lib/utils";
 import { changeMaster } from "../api";
-import { PageTitle } from "./page-header";
 
 const schema = z
   .object({
@@ -53,11 +52,7 @@ export function SecurityPage() {
   });
 
   return (
-    <div className="max-w-lg">
-      <PageTitle
-        title="Xavfsizlik"
-        description="Master parolni almashtirish. Yozuvlaringiz saqlanadi; o'zgarish qurilmada tasdiqlanishi mumkin."
-      />
+    <div>
       <form onSubmit={onSubmit} className="grid gap-4" noValidate>
         <Field label="Joriy master parol" htmlFor="current" error={errors.current?.message}>
           <PasswordInput id="current" aria-invalid={!!errors.current} {...form.register("current")} />

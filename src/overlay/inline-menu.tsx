@@ -33,7 +33,7 @@ export function InlineMenu() {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-1 duration-150">
+    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
       {view.kind === "waiting" ? (
         <ConfirmWait subtitle={view.entry.username} expiresAt={view.expiresAt} />
       ) : (

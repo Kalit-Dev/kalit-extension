@@ -1,4 +1,4 @@
-import { createHashRouter } from "react-router";
+import { createHashRouter, Navigate } from "react-router";
 import { ConnectPage } from "@/popup/routes/connect";
 import { PairPage } from "@/popup/routes/pair";
 import { SetupDonePage, SetupPage } from "@/popup/routes/setup";
@@ -9,6 +9,7 @@ import { HostsPage } from "./pages/hosts";
 import { ImportPage } from "./pages/import";
 import { SecurityPage } from "./pages/security";
 import { SettingsPage } from "./pages/settings";
+import { SettingsLayout } from "./pages/settings-layout";
 import { VaultPage } from "./pages/vault";
 
 // Hash router: tab yangilansa ham joyida qoladi.
@@ -24,10 +25,19 @@ export const router = createHashRouter([
       { path: "/vault", element: <VaultPage /> },
       { path: "/vault/new", element: <EntryFormPage /> },
       { path: "/vault/:id/edit", element: <EntryFormPage /> },
-      { path: "/hosts", element: <HostsPage /> },
       { path: "/import", element: <ImportPage /> },
-      { path: "/security", element: <SecurityPage /> },
-      { path: "/settings", element: <SettingsPage /> },
+      { path: "/security", element: <Navigate to="/settings/security" replace /> },
+      {
+        path: "/settings",
+        element: <SettingsLayout />,
+        children: [
+          { index: true, element: <Navigate to="general" replace /> },
+          { path: "general", element: <SettingsPage /> },
+          { path: "hosts", element: <HostsPage /> },
+          { path: "security", element: <SecurityPage /> },
+        ],
+      },
+      { path: "/hosts", element: <Navigate to="/settings/hosts" replace /> },
       { path: "*", element: null },
     ],
   },

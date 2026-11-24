@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/lib/errors";
 import { listHosts, revokeHost, type HostInfo } from "../api";
-import { PageTitle } from "./page-header";
 
 export function HostsPage() {
   const [hosts, setHosts] = useState<HostInfo[] | null>(null);
@@ -42,10 +41,6 @@ export function HostsPage() {
 
   return (
     <>
-      <PageTitle
-        title="Hostlar"
-        description="Qurilma bilan ulangan kompyuterlar (4 tagacha). Bekor qilingan kompyuter qayta ulanishi kerak bo'ladi."
-      />
       {error ? (
         <div className="grid justify-items-start gap-3 rounded-xl border p-4">
           <p className="text-sm text-destructive">{error}</p>
@@ -62,7 +57,7 @@ export function HostsPage() {
       ) : (
         <ul className="divide-y rounded-xl border bg-card">
           {hosts.map((h) => (
-            <li key={h.slot} className="flex items-center gap-3 px-4 py-3 animate-in fade-in-0">
+            <li key={h.slot} className="flex items-center gap-3 px-4 py-3">
               <span className="grid size-9 place-items-center rounded-md border bg-muted">
                 <Monitor className="size-4" />
               </span>
@@ -74,7 +69,7 @@ export function HostsPage() {
                 <span className="truncate font-mono text-xs text-muted-foreground">{h.fp}</span>
               </div>
               {confirming === h.slot ? (
-                <div className="flex items-center gap-2 animate-in fade-in-0">
+                <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">
                     {h.current ? "Bu kompyuter ham uziladi. " : ""}Bekor qilinsinmi?
                   </span>

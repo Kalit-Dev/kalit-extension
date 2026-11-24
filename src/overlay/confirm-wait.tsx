@@ -7,10 +7,10 @@ import { useCountdown } from "@/hooks/use-countdown";
 export function ConfirmWait({ subtitle, expiresAt }: { subtitle: string; expiresAt: number }) {
   const remaining = useCountdown(expiresAt);
   return (
-    <div className="grid gap-3 p-3 animate-in fade-in-0">
+    <div className="grid gap-3 p-3">
       <div className="flex items-center gap-3">
         <span className="relative grid size-8 place-items-center rounded-full bg-primary/10">
-          <span className="absolute inset-0 animate-ping rounded-full bg-primary/10" />
+          <span className="absolute inset-0 rounded-full bg-primary/10" />
           <Fingerprint className="size-4" />
         </span>
         <div className="grid min-w-0">

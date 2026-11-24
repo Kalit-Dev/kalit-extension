@@ -1,5 +1,5 @@
-import { FileUp, KeyRound, Lock, Monitor, Plug, Settings, ShieldCheck } from "lucide-react";
-import { useEffect } from "react";
+import { ChevronRight, FileUp, KeyRound, Lock, Plug, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Logo } from "@/components/brand";
@@ -18,8 +18,9 @@ const FLOW: Record<Exclude<Phase, "unlocked">, string[]> = {
   factory: ["/setup", "/setup/done"],
   locked: ["/unlock"],
 };
-const UNLOCKED = ["/vault", "/vault/new", "/hosts", "/import", "/security", "/settings"];
-const isUnlockedPath = (p: string) => UNLOCKED.includes(p) || /^\/vault\/[^/]+\/edit$/.test(p);
+const UNLOCKED = ["/vault", "/vault/new", "/hosts", "/import", "/security"]; // /hosts va /security -> /settings/* ga yo'naltiriladi
+const isUnlockedPath = (p: string) =>
+  UNLOCKED.includes(p) || p === "/settings" || p.startsWith("/settings/") || /^\/vault\/[^/]+\/edit$/.test(p);
 
 const STATUS: Record<Phase, { label: string; dot: string }> = {
   disconnected: { label: "Ulanmagan", dot: "bg-muted-foreground/40" },
@@ -32,20 +33,29 @@ const STATUS: Record<Phase, { label: string; dot: string }> = {
 
 const NAV = [
   { to: "/vault", label: "Parollar", icon: KeyRound },
-  { to: "/hosts", label: "Hostlar", icon: Monitor },
   { to: "/import", label: "Import", icon: FileUp },
-  { to: "/security", label: "Xavfsizlik", icon: ShieldCheck },
-  { to: "/settings", label: "Sozlamalar", icon: Settings },
+];
+
+const SETTINGS_NAV = [
+  { to: "/settings/general", label: "Umumiy" },
+  { to: "/settings/hosts", label: "Hostlar" },
+  { to: "/settings/security", label: "Xavfsizlik" },
 ];
 
 export function ManagerShell() {
   const phase = useDevice((s) => s.phase);
   const kind = useDevice((s) => s.kind);
   const count = useDevice((s) => s.entries.length);
+  const firmware = useDevice((s) => s.status?.firmware);
   const lock = useDevice((s) => s.lock);
   const disconnect = useDevice((s) => s.disconnect);
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const inSettings = pathname.startsWith("/settings");
+  const [settingsOpen, setSettingsOpen] = useState(inSettings);
+  useEffect(() => {
+    if (inSettings) setSettingsOpen(true);
+  }, [inSettings]);
 
   useEffect(() => {
     if (phase === "unlocked") {
@@ -87,12 +97,12 @@ export function ManagerShell() {
 
   return (
     <div className="relative flex h-full">
-      <aside className="flex w-56 shrink-0 flex-col gap-1 border-r bg-muted/30 p-3 max-md:w-16 max-md:items-center">
-        <div className="mb-4 flex items-center gap-2 px-2 pt-1">
+      <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/30 max-md:w-16">
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b px-5 max-md:justify-center max-md:px-0">
           <Logo />
           <span className="text-sm font-semibold tracking-tight max-md:hidden">Kalit</span>
         </div>
-        <nav className="grid gap-0.5" aria-label="Asosiy menyu">
+        <nav className="grid gap-0.5 p-3" aria-label="Asosiy menyu">
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -112,22 +122,76 @@ export function ManagerShell() {
               )}
             </NavLink>
           ))}
+
+          <button
+            type="button"
+            aria-expanded={settingsOpen}
+            aria-controls="settings-nav"
+            title="Sozlamalar"
+            onClick={() => {
+              if (!settingsOpen && !inSettings) navigate("/settings/general");
+              setSettingsOpen((o) => !o);
+            }}
+            className={cn(
+              "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:justify-center",
+              inSettings && "text-foreground",
+            )}
+          >
+            <Settings className="size-4" />
+            <span className="max-md:hidden">Sozlamalar</span>
+            <ChevronRight
+              className={cn("ml-auto size-3.5 max-md:hidden", settingsOpen && "rotate-90")}
+              aria-hidden
+            />
+          </button>
+          {settingsOpen && (
+            <div id="settings-nav" className="grid gap-0.5 max-md:hidden">
+              {SETTINGS_NAV.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    cn(
+                      "rounded-md py-1.5 pr-2.5 pl-9 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                      isActive && "bg-accent font-medium text-foreground",
+                    )
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
-        <div className="mt-auto grid gap-2">
-          <div className="px-1 max-md:hidden">{statusBadge}</div>
-          <Button variant="ghost" size="sm" className="justify-start max-md:justify-center" title="Qulflash" onClick={() => lock().catch(fail)}>
-            <Lock /> <span className="max-md:hidden">Qulflash</span>
-          </Button>
-          <Button variant="ghost" size="sm" className="justify-start max-md:justify-center" title="Uzish" onClick={() => disconnect().catch(fail)}>
-            <Plug /> <span className="max-md:hidden">Uzish</span>
-          </Button>
-        </div>
+        <footer className="mt-auto grid gap-0.5 border-t px-5 py-3 text-xs text-muted-foreground max-md:hidden">
+          <span className="flex justify-between">
+            <span>Qurilma</span>
+            <span className="font-mono">{firmware ? `v${firmware}` : "—"}</span>
+          </span>
+          <span className="flex justify-between">
+            <span>Extension</span>
+            <span className="font-mono">v{chrome.runtime.getManifest().version}</span>
+          </span>
+        </footer>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl animate-in fade-in-0 slide-in-from-bottom-1 p-6 duration-300">
-          <Outlet />
-        </div>
-      </main>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-end gap-2 border-b px-6">
+          {statusBadge}
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+          <Button variant="ghost" size="sm" title="Qurilmani qulflash" onClick={() => lock().catch(fail)}>
+            <Lock /> <span className="max-sm:hidden">Qulflash</span>
+          </Button>
+          <Button variant="ghost" size="sm" title="Qurilmadan uzish" onClick={() => disconnect().catch(fail)}>
+            <Plug /> <span className="max-sm:hidden">Uzish</span>
+          </Button>
+        </header>
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl px-6 py-8">
+            <Outlet />
+          </div>
+        </main>
+      </div>
       <ConfirmOverlay centered />
       <Toaster />
     </div>

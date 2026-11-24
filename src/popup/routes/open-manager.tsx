@@ -15,7 +15,7 @@ export function OpenManagerPage() {
   const [title, description] = phase === "pairing" ? COPY.pairing : phase === "factory" ? COPY.factory : COPY.default;
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 px-8 pb-8 text-center animate-in fade-in-0">
+    <div className="flex h-full flex-col items-center justify-center gap-6 px-8 pb-8 text-center">
       <span className="grid size-16 place-items-center rounded-2xl border bg-card shadow-sm">
         <Usb className="size-7" />
       </span>

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { forgetDevice, getHostKeyPair } from "@/device/keys";
 import { getNeverSave, removeNeverSave } from "@/lib/storage";
 import { useDevice } from "@/store/device-store";
-import { PageTitle } from "./page-header";
 
 export function SettingsPage() {
   const status = useDevice((s) => s.status);
@@ -20,8 +19,7 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <div className="grid max-w-2xl gap-8">
-      <PageTitle title="Sozlamalar" />
+    <div className="grid gap-8">
       <Group title="Qurilma">
         <Row label="Ulanish" value="USB" />
         <Row label="Firmware" value={status?.firmware ?? "—"} mono />

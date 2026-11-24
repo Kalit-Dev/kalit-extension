@@ -41,7 +41,7 @@ export function SavePrompt() {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-200">
+    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
       {view.kind === "loading" && <div className="h-14" />}
 
       {view.kind === "ask" && (
@@ -84,7 +84,7 @@ export function SavePrompt() {
       {view.kind === "waiting" && <ConfirmWait subtitle={`${view.site} · ${view.username}`} expiresAt={view.expiresAt} />}
 
       {view.kind === "saved" && (
-        <div className="flex items-center gap-2.5 p-3 text-sm animate-in fade-in-0">
+        <div className="flex items-center gap-2.5 p-3 text-sm">
           <span className="grid size-6 place-items-center rounded-full bg-success/15 text-success">
             <Check className="size-3.5" />
           </span>
