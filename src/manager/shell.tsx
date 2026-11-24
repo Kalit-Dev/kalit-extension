@@ -1,4 +1,4 @@
-import { KeyRound, Lock, Monitor, Plug, Settings, ShieldCheck } from "lucide-react";
+import { FileUp, KeyRound, Lock, Monitor, Plug, Settings, ShieldCheck } from "lucide-react";
 import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ const FLOW: Record<Exclude<Phase, "unlocked">, string[]> = {
   factory: ["/setup", "/setup/done"],
   locked: ["/unlock"],
 };
-const UNLOCKED = ["/vault", "/vault/new", "/hosts", "/security", "/settings"];
+const UNLOCKED = ["/vault", "/vault/new", "/hosts", "/import", "/security", "/settings"];
 const isUnlockedPath = (p: string) => UNLOCKED.includes(p) || /^\/vault\/[^/]+\/edit$/.test(p);
 
 const STATUS: Record<Phase, { label: string; dot: string }> = {
@@ -33,6 +33,7 @@ const STATUS: Record<Phase, { label: string; dot: string }> = {
 const NAV = [
   { to: "/vault", label: "Parollar", icon: KeyRound },
   { to: "/hosts", label: "Hostlar", icon: Monitor },
+  { to: "/import", label: "Import", icon: FileUp },
   { to: "/security", label: "Xavfsizlik", icon: ShieldCheck },
   { to: "/settings", label: "Sozlamalar", icon: Settings },
 ];

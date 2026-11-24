@@ -6,6 +6,7 @@ import { UnlockPage } from "@/popup/routes/unlock";
 import { ManagerShell } from "./shell";
 import { EntryFormPage } from "./pages/entry-form";
 import { HostsPage } from "./pages/hosts";
+import { ImportPage } from "./pages/import";
 import { SecurityPage } from "./pages/security";
 import { SettingsPage } from "./pages/settings";
 import { VaultPage } from "./pages/vault";
@@ -24,6 +25,7 @@ export const router = createHashRouter([
       { path: "/vault/new", element: <EntryFormPage /> },
       { path: "/vault/:id/edit", element: <EntryFormPage /> },
       { path: "/hosts", element: <HostsPage /> },
+      { path: "/import", element: <ImportPage /> },
       { path: "/security", element: <SecurityPage /> },
       { path: "/settings", element: <SettingsPage /> },
       { path: "*", element: null },
