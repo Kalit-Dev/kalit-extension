@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1 # matches the version that produced pnpm-lock.yaml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx tsc --noEmit
+      # interop.test.ts skips itself when the native firmware binary is missing (as it is here).
+      - run: pnpm test
+      - run: pnpm run build
+      - name: Zip dist/
+        run: node scripts/package.mjs --no-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kalit-extension
+          path: release/*.zip
+          if-no-files-found: error
+
+  # TODO: interop job. Check out Kalit-Dev/kalit-firmware next to this repo, run
+  # `pio run -e native_app` there, then `KALIT_FIRMWARE_DIR=<path> pnpm test` here, so
+  # src/shared/api/device/interop.test.ts runs against the real firmware. Not enabled: untested
+  # (needs repo access and the PlatformIO native toolchain on the runner).
