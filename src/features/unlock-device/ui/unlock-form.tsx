@@ -47,13 +47,15 @@ export function UnlockForm() {
       >
         <PasswordInput id="password" placeholder="Master parolni kiriting" autoFocus aria-invalid={!!errors.password} {...form.register("password")} />
       </Field>
-      <Button type="submit" size="lg" disabled={isSubmitting}>
-        {isSubmitting && <Loader2 className="animate-spin" />}
-        Ochish
-      </Button>
-      <Button type="button" variant="outline" size="lg" onClick={() => void disconnect()}>
-        Uzish
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" size="lg" onClick={() => void disconnect()}>
+          Uzish
+        </Button>
+        <Button type="submit" size="lg" disabled={isSubmitting}>
+          {isSubmitting && <Loader2 className="animate-spin" />}
+          Ochish
+        </Button>
+      </div>
     </form>
   );
 }

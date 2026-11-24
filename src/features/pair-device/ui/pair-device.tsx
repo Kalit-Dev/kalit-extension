@@ -30,12 +30,14 @@ export function PairDevice() {
           {code}
         </p>
       )}
-      <Button size="lg" disabled={busy} onClick={start}>
-        Ulashni boshlash
-      </Button>
-      <Button variant="outline" size="lg" onClick={() => void disconnect()}>
-        Bekor qilish
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" size="lg" onClick={() => void disconnect()}>
+          Bekor qilish
+        </Button>
+        <Button size="lg" disabled={busy} onClick={start}>
+          Ulashni boshlash
+        </Button>
+      </div>
     </div>
   );
 }
