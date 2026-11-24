@@ -131,14 +131,14 @@ export function EntryDetailsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in-0 duration-200"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Yozuv tafsilotlari"
-        className="w-full max-w-md overflow-hidden rounded-xl border bg-card shadow-xl"
+        className="w-full max-w-md overflow-hidden rounded-xl border bg-card shadow-xl animate-in fade-in-0 zoom-in-95 duration-200"
       >
         <div className="flex items-center gap-3 border-b px-5 py-4">
           <EntryAvatar entry={entry} className="size-10" />

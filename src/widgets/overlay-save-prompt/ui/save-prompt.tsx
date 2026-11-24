@@ -41,7 +41,7 @@ export function SavePrompt() {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
+    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-200">
       {view.kind === "loading" && <div className="h-14" />}
 
       {view.kind === "ask" && (

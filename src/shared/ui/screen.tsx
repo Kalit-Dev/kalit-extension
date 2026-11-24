@@ -11,7 +11,7 @@ interface ScreenProps {
 /** Bir maqsadli ekranlar uchun markazlashgan layout (connect, unlock, setup...). */
 export function Screen({ icon: Icon, title, description, children }: ScreenProps) {
   return (
-    <div className="flex min-h-full flex-col justify-center gap-6 px-6 py-10">
+    <div className="flex min-h-full animate-in flex-col justify-center gap-6 px-6 py-10 duration-300 fade-in-0 slide-in-from-bottom-2">
       <div className="grid gap-3">
         <span className="grid size-11 place-items-center rounded-xl border bg-muted/50">
           <Icon className="size-5" />

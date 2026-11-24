@@ -74,7 +74,7 @@ export function HostList() {
       ) : (
         <ul className="divide-y">
           {hosts.map((h) => (
-            <li key={h.slot} className="flex flex-wrap items-center gap-3 px-6 py-4">
+            <li key={h.slot} className="flex animate-in flex-wrap items-center gap-3 px-6 py-4 fade-in-0">
               <span className="grid size-9 place-items-center rounded-md border bg-muted">
                 <Monitor className="size-4" />
               </span>

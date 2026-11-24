@@ -33,9 +33,11 @@ export function ConfirmOverlay({ centered = false }: { centered?: boolean }) {
     <div
       role="alertdialog"
       aria-live="assertive"
-      className={`fixed inset-0 z-50 flex bg-background/70 backdrop-blur-sm ${centered ? "items-center justify-center" : "items-end"}`}
+      className={`fixed inset-0 z-50 flex bg-background/70 backdrop-blur-sm animate-in fade-in-0 duration-200 ${centered ? "items-center justify-center" : "items-end"}`}
     >
-      <div className={`m-3 grid w-full gap-4 ${centered ? "max-w-md" : ""} rounded-xl border bg-card p-5 shadow-lg`}>
+      <div
+        className={`m-3 grid w-full animate-in gap-4 rounded-xl border bg-card p-5 shadow-lg duration-200 fade-in-0 ${centered ? "max-w-md zoom-in-95" : "slide-in-from-bottom-4"}`}
+      >
         <div className="flex items-center gap-3">
           <span className="relative grid size-10 place-items-center rounded-full bg-primary/10">
             <span className="absolute inset-0 rounded-full bg-primary/10" />

@@ -34,7 +34,7 @@ export function InlineMenu({ otp = false }: { otp?: boolean }) {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
+    <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-1 duration-150">
       {view.kind === "waiting" ? (
         <ConfirmWait subtitle={view.entry.username} expiresAt={view.expiresAt} />
       ) : (

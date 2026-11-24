@@ -67,7 +67,7 @@ export function ManagerShell() {
           </span>
         </header>
         <main className="grid flex-1 place-items-center p-6">
-          <div className="w-full max-w-md rounded-2xl border bg-card shadow-sm">
+          <div key={pathname} className="w-full max-w-md animate-in rounded-2xl border bg-card shadow-sm duration-300 fade-in-0 slide-in-from-bottom-1">
             <Outlet />
           </div>
         </main>
@@ -122,12 +122,12 @@ export function ManagerShell() {
             <Settings className="size-4" />
             <span className="max-md:hidden">Sozlamalar</span>
             <ChevronRight
-              className={cn("ml-auto size-3.5 max-md:hidden", settingsOpen && "rotate-90")}
+              className={cn("ml-auto size-3.5 transition-transform max-md:hidden", settingsOpen && "rotate-90")}
               aria-hidden
             />
           </button>
           {settingsOpen && (
-            <div id="settings-nav" className="grid gap-0.5 max-md:hidden">
+            <div id="settings-nav" className="grid animate-in gap-0.5 duration-150 fade-in-0 slide-in-from-top-1 max-md:hidden">
               {SETTINGS_NAV.map(({ to, label }) => (
                 <NavLink
                   key={to}
@@ -168,7 +168,7 @@ export function ManagerShell() {
           <LockButton variant="outline" />
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-6 py-8">
+          <div key={pathname} className="mx-auto w-full max-w-3xl animate-in px-6 py-8 duration-300 fade-in-0 slide-in-from-bottom-1">
             <Outlet />
           </div>
         </main>

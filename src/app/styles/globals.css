@@ -94,3 +94,10 @@ html.dark {
     @apply bg-background text-foreground font-sans antialiased;
   }
 }
+
+/* Tizimda "harakatni kamaytirish" yoqilgan bo'lsa, kirish animatsiyalari bir zumda tugaydi. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in {
+    animation-duration: 1ms !important;
+  }
+}
