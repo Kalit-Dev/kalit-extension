@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => ({
         manager: r("./manager.html"),
         grant: r("./grant.html"),
         offscreen: r("./offscreen.html"),
-        background: r("./src/background/index.ts"),
+        background: r("./src/app/background/index.ts"),
       },
       output: {
         entryFileNames: (chunk) =>

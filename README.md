@@ -42,20 +42,24 @@ Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport 
 - **Origin `sender.tab.url` dan olinadi**, payload'dan emas. Qurilma ham domenni o'zi tekshiradi.
 - **Har bir parol / saqlash / o'chirish / pairing — qurilmada tugma bilan tasdiq** (10 s, keyin reject).
 
-## Papkalar
+## Papkalar (Feature-Sliced Design)
+
+Qatlamlar yuqoridan pastga: `app > pages > widgets > features > entities > shared`.
+Qatlam faqat o'zidan pastdagini import qiladi; bir qatlamdagi slice'lar bir-birini bilmaydi;
+slice'ga faqat `index.ts` (ochiq API) orqali murojaat qilinadi. Qoidalar `src/fsd.test.ts` da tekshiriladi.
 
 ```
 src/
-  device/      protocol.ts (zod kontrakt), client.ts, serial-transport.ts, mock-transport.ts
-  store/       device-store.ts — UI ko'zgusi (holat mashinasi: engine/device-store.ts)
-  engine/      main.ts (offscreen entry, RPC), device-store.ts (holat mashinasi), hub.ts (content/overlay xabarlari), protocol.ts
-  popup/       router.tsx, routes/*, components/* (toolbar popup: holat + tez ro'yxat)
-  manager/     main.tsx, router.tsx, shell.tsx, pages/* (to'liq boshqaruv sahifasi)
-  background/  engine'ni tirik tutadi, storage/tabs/idle ko'prigi
-  overlay/     inline-menu.tsx, save-prompt.tsx (sayt ichidagi iframe)
-  content/     forms.ts, overlay.ts, index.ts
-  components/  ui/* (shadcn), field, password-input, brand
-  lib/         domain (tldts), messages, storage, errors
+  app/        Extension entry'lari (har biri alohida bundle): manager/, popup/, overlay/, background/,
+              content/, engine/ (offscreen: holat mashinasi + hub), grant/, styles/globals.css
+  pages/      Marshrut sahifalari: vault, entry-form, import, settings, connect, pair, setup, unlock,
+              popup-vault, popup-connect
+  widgets/    Katta bloklar: manager-shell, popup-shell, entry-details-dialog, overlay-inline-menu, overlay-save-prompt
+  features/   Foydalanuvchi amallari: entry-form, import-entries, change-master-password, manage-hosts,
+              unlock-device, setup-device, pair-device, connect-device, device-session, reveal-credential, fill-credential
+  entities/   Biznes obyektlari: device (store, holat, confirm UI), entry (isSecret, avatar, qidiruv)
+  shared/     ui/ (shadcn + card, segmented, ...), lib/ (utils, domain, errors, kv, hooks),
+              api/ (device protokoli va transportlar, engine xabarlari, messages, overlay-bridge)
 ```
 
 Yangi shadcn komponent: `npx shadcn@latest add dialog`.
@@ -64,7 +68,7 @@ Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
 USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
 Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). Mantiqiy buyruqlar va sxemalar: `src/device/protocol.ts`.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
 
 **Import:** Manager'dagi Import sahifasi (Bitwarden JSON / CSV) boshlashdan oldin qurilmada bir marta tasdiqlanadi ("N ta yozuv"); shundan keyin barcha yozuvlar tugma bosilmasdan qo'shiladi. Boshqa amallar (parolni olish, o'chirish, yangilash...) har doim alohida tasdiq talab qiladi. Eski firmware'da (< 0.4.0) import ishlamaydi.
 Firmware: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware). Klassik ESP32 DevKit (CP210x/CH340) ham qo'llab-quvvatlanadi.

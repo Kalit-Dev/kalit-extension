@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     emptyOutDir: false,
     sourcemap: mode === "development" ? "inline" : false,
     lib: {
-      entry: r("./src/content/index.ts"),
+      entry: r("./src/app/content/index.ts"),
       formats: ["iife"],
       name: "KalitContent",
       fileName: () => "content.js",

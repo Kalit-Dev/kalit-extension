@@ -1,0 +1,52 @@
+import { Bluetooth, Loader2, Usb } from "lucide-react";
+import { toast } from "sonner";
+import { useDevice } from "@/entities/device";
+import { forgetDevice } from "@/shared/api/device/keys";
+import { SerialTransport } from "@/shared/api/device/serial-transport";
+import { describeError, errorCode } from "@/shared/lib/errors";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+
+/** USB orqali ulanish tugmalari (Bluetooth — tez kunda). */
+export function ConnectDevice() {
+  const connect = useDevice((s) => s.connect);
+  const busy = useDevice((s) => s.phase === "connecting");
+  const supported = SerialTransport.isSupported();
+
+  const run = async () => {
+    try {
+      // Ruxsat berilgan port bor bo'lsa — jim ulanamiz. Yo'q bo'lsa — faqat shunda ruxsat tab'i ochiladi
+      // (popup'da tanlash oynasi chiqmaydi).
+      if (!(await SerialTransport.fromGranted())) {
+        void chrome.tabs.create({ url: chrome.runtime.getURL("grant.html") });
+        return;
+      }
+      await connect("usb");
+    } catch (e) {
+      toast.error("Ulanib bo'lmadi", {
+        description: e instanceof DOMException ? e.message : describeError(e),
+        action:
+          errorCode(e) === "DEVICE_KEY_CHANGED"
+            ? { label: "Qurilmani unutish", onClick: () => void forgetDevice() }
+            : undefined,
+      });
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Button size="lg" disabled={!supported || busy} onClick={run}>
+        {busy ? <Loader2 className="animate-spin" /> : <Usb />}
+        USB orqali ulash
+      </Button>
+      <Button size="lg" variant="outline" disabled>
+        <Bluetooth />
+        Bluetooth
+        <Badge variant="secondary" className="ml-auto">
+          Tez kunda
+        </Badge>
+      </Button>
+      {!supported && <p className="text-xs text-destructive">Bu brauzer Web Serial API'ni qo'llab-quvvatlamaydi.</p>}
+    </div>
+  );
+}
