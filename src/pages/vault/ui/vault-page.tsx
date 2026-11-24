@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { compareEntries, EntryAvatar, isSecret, matchesQuery } from "@/entities/entry";
+import { BackupReminder } from "@/features/backup";
 import { EntryDetailsDialog } from "@/widgets/entry-details-dialog";
 import type { EntryMeta } from "@/shared/api/device/protocol";
 import { describeError } from "@/shared/lib/errors";
@@ -48,6 +49,8 @@ export function VaultPage() {
           </Button>
         }
       />
+
+      {entries.length > 0 && <BackupReminder />}
 
       <div className="relative mb-4">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

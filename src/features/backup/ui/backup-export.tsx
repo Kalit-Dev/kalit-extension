@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardIcon, C
 import { Field } from "@/shared/ui/field";
 import { PasswordInput } from "@/shared/ui/password-input";
 import { PasswordStrengthMeter } from "@/shared/ui/password-strength-meter";
+import { markBackupDone, useLastBackup } from "../model/last-backup";
 import { BackupProgressView } from "./backup-progress";
 
 const schema = z
@@ -50,6 +51,7 @@ export function BackupExport() {
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { passphrase: "", confirm: "" } });
   const { errors } = form.formState;
   const [progress, setProgress] = useState<BackupProgress | null>(null);
+  const lastAt = useLastBackup();
 
   const onSubmit = form.handleSubmit(async (v) => {
     setProgress({ stage: "confirm", done: 0, total: 0 });
@@ -57,6 +59,7 @@ export function BackupExport() {
       const file = await exportBackup(v.passphrase, setProgress);
       download(backupFileName(), serializeBackup(file));
       form.reset(); // parol formadan ham tozalanadi
+      await markBackupDone().catch(() => undefined);
       toast.success(`${file.count} ta yozuv zaxiraga olindi`);
     } catch (e) {
       toast.error(describeBackupError(e));
@@ -76,6 +79,7 @@ export function BackupExport() {
             <CardTitle>Zaxira nusxa olish</CardTitle>
             <CardDescription>
               Barcha yozuvlar qurilmada shifrlanib, <code>.kalit</code> faylga saqlanadi. Fayl ichida ochiq matn yo'q.
+              {typeof lastAt === "number" && ` Oxirgi zaxira: ${new Date(lastAt).toLocaleDateString("uz")}.`}
             </CardDescription>
           </div>
         </CardHeader>
