@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { compareEntries, EntryAvatar, formatUpdatedAt, isSecret, isStalePassword, matchesQuery } from "@/entities/entry";
 import { BackupReminder } from "@/features/backup";
-import { AuditBadges, AuditPanel, useAudit } from "@/features/password-audit";
+import { AuditBadges, useAudit } from "@/features/password-audit";
 import { EntryDetailsDialog } from "@/widgets/entry-details-dialog";
 import type { EntryMeta } from "@/shared/api/device/protocol";
 import { describeError } from "@/shared/lib/errors";
@@ -22,14 +22,9 @@ export function VaultPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = entries.find((e) => e.id === selectedId) ?? null;
 
-  const { report, running, run, flags } = useAudit(entries);
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
-  const onlyFlagged = flaggedOnly && report !== null && flags.size > 0; // natija eskirsa filtr o'z-o'zidan o'chadi
+  const { flags } = useAudit(entries); // qurilmada o'zi ishlaydi; natija faqat qatordagi belgilar uchun
 
-  const list = useMemo(
-    () => entries.filter((e) => matchesQuery(e, query) && (!onlyFlagged || flags.has(e.id))).sort(compareEntries),
-    [entries, query, onlyFlagged, flags],
-  );
+  const list = useMemo(() => entries.filter((e) => matchesQuery(e, query)).sort(compareEntries), [entries, query]);
 
   const remove = async (e: EntryMeta) => {
     try {
@@ -56,16 +51,6 @@ export function VaultPage() {
       />
 
       {entries.length > 0 && <BackupReminder />}
-
-      {entries.length > 0 && (
-        <AuditPanel
-          report={report}
-          running={running}
-          onRun={() => void run()}
-          onlyFlagged={onlyFlagged}
-          onToggleFlagged={() => setFlaggedOnly((v) => !v)}
-        />
-      )}
 
       <div className="relative mb-4">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

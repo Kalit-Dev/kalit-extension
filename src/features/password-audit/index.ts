@@ -1,3 +1,3 @@
-export { AuditBadges, AuditPanel } from "./ui/audit-panel";
+export { AuditBadges } from "./ui/audit-badges";
 export { useAudit } from "./model/use-audit";
-export { auditSummary, flagsById } from "./model/audit";
+export { flagsById } from "./model/audit";
