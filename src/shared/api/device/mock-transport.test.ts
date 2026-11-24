@@ -31,7 +31,7 @@ const code = async (p: Promise<unknown>) => {
 async function ready(mock = new MockTransport({ fast: true })) {
   const c = connect(mock);
   await c.transport.open();
-  await c.client.call("PAIR_HOST", {});
+  await c.client.pair(() => true);
   await c.client.call("ONBOARD", { masterPassword: "correct horse battery" });
   return { mock, ...c };
 }
@@ -95,7 +95,7 @@ describe("MockTransport behind Noise", () => {
       hosts.push(id);
       const c = connect(mock, id);
       await c.transport.open();
-      await c.client.call("PAIR_HOST", {});
+      await c.client.pair(() => true);
       await c.transport.close();
     }
     const status = async (id: KeyPair) => {
@@ -193,12 +193,12 @@ describe("MockTransport behind Noise", () => {
       const mock = new MockTransport({ fast: true });
       const a = connect(mock);
       await a.transport.open();
-      await a.client.call("PAIR_HOST", {});
+      await a.client.pair(() => true);
       await a.client.call("ONBOARD", { masterPassword: "correct horse battery" });
       await a.transport.close();
       const b = connect(mock);
       await b.transport.open();
-      await b.client.call("PAIR_HOST", {});
+      await b.client.pair(() => true);
       const { hosts } = await b.client.call("LIST_HOSTS", {});
       expect(hosts).toHaveLength(2);
       expect(hosts.filter((h) => h.current)).toHaveLength(1);
@@ -377,7 +377,7 @@ describe("protocol v0.5 import session", () => {
     const identity = generateKeyPair();
     const first = connect(mock, identity);
     await first.transport.open();
-    await first.client.call("PAIR_HOST", {});
+    await first.client.pair(() => true);
     await first.client.call("ONBOARD", { masterPassword: "correct horse battery" });
     await first.client.call("IMPORT_BEGIN", { count: 3 });
     await mock.close();
@@ -401,7 +401,7 @@ describe("protocol v0.5 import session", () => {
     let button: "short" | "long" = "short";
     client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(button)));
     await transport.open();
-    await client.call("PAIR_HOST", {});
+    await client.pair(() => true);
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     button = "long";
     expect(await code(client.call("IMPORT_BEGIN", { count: 2 }))).toBe("USER_REJECTED");
@@ -534,7 +534,7 @@ describe("protocol v0.6 encrypted backup (mock)", () => {
     let button: "short" | "long" = "short";
     client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(button)));
     await transport.open();
-    await client.call("PAIR_HOST", {});
+    await client.pair(() => true);
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     await addWebN(client, 1);
     button = "long";
@@ -695,7 +695,7 @@ describe("protocol v0.6 encrypted backup (mock)", () => {
     const identity = generateKeyPair();
     const first = connect(mock, identity);
     await first.transport.open();
-    await first.client.call("PAIR_HOST", {});
+    await first.client.pair(() => true);
     await first.client.call("ONBOARD", { masterPassword: "correct horse battery" });
     await addWebN(first.client, 1);
     await first.client.call("EXPORT_BEGIN", { passphrase: PASS });
@@ -947,7 +947,7 @@ describe("protocol v0.9 TOTP (mock)", () => {
     let press: "short" | "long" = "short";
     client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(press)));
     await transport.open();
-    await client.call("PAIR_HOST", {});
+    await client.pair(() => true);
     await client.call("ONBOARD", { masterPassword: "correct horse battery" });
     const { entry } = await client.call("ADD_ENTRY", { ...web, totp: SEED });
     press = "long";
@@ -1062,7 +1062,7 @@ describe("v0.11 pairing code verify (PAIR_VERIFY)", () => {
     let second: Promise<string | null> | null = null;
     await client.pair(() => {
       // Birinchi PAIR_VERIFY'dan keyin yuborilsin (bir xil tartibdagi kanal).
-      queueMicrotask(() => (second = code(client.call("PAIR_VERIFY", { match: false }))));
+      setTimeout(() => (second = code(client.call("PAIR_VERIFY", { match: false }))), 0);
       return true;
     });
     expect(await second).toBe("INVALID_STATE");
@@ -1103,6 +1103,7 @@ describe("v0.11 pairing code verify (PAIR_VERIFY)", () => {
     await new Promise((r) => setTimeout(r, 5));
     await mock.close();
     expect(await p).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 5)); // eski sessiyaning kech javobi yangi handshake'ga aralashmasin
     const second = connect(mock, identity);
     await second.transport.open();
     await second.client.pair(() => true);
@@ -1112,8 +1113,9 @@ describe("v0.11 pairing code verify (PAIR_VERIFY)", () => {
   it("PAIR_HOST for an already trusted host returns without a verify step", async () => {
     const { client } = await fresh();
     await client.pair(() => true);
-    const choose = vi.fn(() => true);
-    await client.pair(choose);
-    expect(choose).not.toHaveBeenCalled();
+    const seen: string[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data.phase ?? "button"));
+    expect(await client.call("PAIR_HOST", {})).toEqual({});
+    expect(seen).toEqual([]);
   });
 });

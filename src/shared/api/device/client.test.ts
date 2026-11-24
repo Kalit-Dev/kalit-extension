@@ -277,16 +277,43 @@ describe("pair() (v0.11 PAIR_VERIFY)", () => {
     await expect(p).rejects.toMatchObject({ code: "USER_REJECTED" });
   });
 
-  it("ignores the button-phase CONFIRM_PENDING (no phase)", async () => {
+  it("fails closed with PROTOCOL when PAIR_HOST succeeds without a verify phase (downgrade)", async () => {
     const { t, sent } = recording();
     const choose = vi.fn(() => true);
     const client = new DeviceClient(t);
     const p = client.pair(choose);
-    t.reply(verifyEvent({ code: "1234" }));
+    t.reply(verifyEvent({ code: "1234" })); // tugma bosqichi (phase yo'q) — verify emas
     t.reply({ id: 1, ok: true, result: {} });
-    await expect(p).resolves.toBeUndefined();
+    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
     expect(choose).not.toHaveBeenCalled();
     expect(sent).toHaveLength(1);
+  });
+
+  it("fails closed with PROTOCOL when choose said no but the peer still answers PAIR_HOST {}", async () => {
+    const { t, sent } = recording();
+    const client = new DeviceClient(t);
+    const p = client.pair(() => false);
+    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ cmd: "PAIR_VERIFY", params: { match: false } });
+    t.reply({ id: 2, ok: true, result: {} });
+    t.reply({ id: 1, ok: true, result: {} });
+    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
+  });
+
+  it("does not resolve on an early PAIR_HOST {} while choose is pending; waits for the decision", async () => {
+    const { t } = recording();
+    const client = new DeviceClient(t);
+    let decide: (v: boolean) => void = () => undefined;
+    const p = client.pair(() => new Promise<boolean>((r) => (decide = r)));
+    let settled = false;
+    void p.then(() => (settled = true), () => (settled = true));
+    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
+    t.reply({ id: 1, ok: true, result: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(settled).toBe(false);
+    decide(false);
+    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
   });
 
   it("throws PROTOCOL when the verify event carries no code, answering match=false", async () => {

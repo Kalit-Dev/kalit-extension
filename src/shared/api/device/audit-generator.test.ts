@@ -22,7 +22,7 @@ async function ready() {
     if (e.event === "CONFIRM_PENDING") queueMicrotask(() => mock.press("short"));
   });
   await transport.open();
-  await client.call("PAIR_HOST", {});
+  await client.pair(() => true);
   await client.call("ONBOARD", { masterPassword: "correct horse battery" });
   return { mock, client, transport };
 }

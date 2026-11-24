@@ -179,7 +179,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     },
 
     async pair() {
-      await client().call("PAIR_HOST", {});
+      await client().pair(() => true);
       await get().refresh();
     },
 

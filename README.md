@@ -48,7 +48,7 @@ Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport 
 - **Background** — engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
 - **USB ruxsati** manager sahifasida "USB orqali ulash" bosilganda Chrome tanlash oynasi bilan olinadi (popup/offscreen'da
   oyna ochilmaydi, popup shuning uchun manager'ni ochadi). Ruxsat extension origin'iga tegishli, engine keyin o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
-- **Firmware yangilash** (`/firmware` sahifasi; Sozlamalar → Umumiy → Firmware → Yangilash yoki ulanish ekranidagi havola):
+- **Firmware yangilash** (`/firmware` sahifasi; Sozlamalar → Umumiy → Firmware → Yangilash):
   `loadVerifiedRelease` GitHub'dan release'ni yuklaydi va **qurilmaga tegmasdan** Ed25519 imzosini (`SHA256SUMS.sig`) va har
   fayl SHA-256'ini tekshiradi; keyin engine portni bo'shatadi, esptool-js (Web Serial) chip nomini release'dagi bilan
   solishtiradi va `nvs`/`kvault`ga tegmay yozadi (+ qurilmadagi MD5 tekshiruvi). Eski versiyaga qaytarish rad etiladi.
