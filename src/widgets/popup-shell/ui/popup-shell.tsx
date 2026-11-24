@@ -31,7 +31,8 @@ export function PopupShell() {
   }, [phase, pathname, navigate]);
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="h-full bg-transparent p-1.5">
+    <div className="relative flex h-full flex-col overflow-hidden rounded-xl border bg-background shadow-sm">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <Logo />
         <span className="text-sm font-semibold tracking-tight">Kalit</span>
@@ -61,6 +62,7 @@ export function PopupShell() {
 
       <ConfirmOverlay />
       <Toaster />
+    </div>
     </div>
   );
 }

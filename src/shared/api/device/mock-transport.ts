@@ -1,4 +1,5 @@
 import { sha256 } from "@noble/hashes/sha2.js";
+import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { decode, encode } from "./cbor";
 import { generateKeyPair, NoiseSession, pairingCode, type CipherState, type KeyPair } from "./noise";
@@ -19,7 +20,9 @@ const MAX_ENTRIES = 32;
 const META_BUDGET = 160;
 const GUARD_MS = 500;
 const IMPORT_SESSION_MS = 120_000;
-const FIRMWARE = "mock-0.4.0";
+const BACKUP_SESSION_MS = 120_000;
+const BACKUP_ITER = 200_000;
+const FIRMWARE = "mock-0.5.0";
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+";
 
 class Fault extends Error {
@@ -51,6 +54,50 @@ function generatePassword(length: number): string {
   return out.join("");
 }
 
+const u32 = (n: number) => new Uint8Array([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
+const bytesEqual = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * v0.6 FAKE seal (faqat simulyator!): haqiqiy qurilma PBKDF2 + ChaCha20-Poly1305 ishlatadi.
+ * Bu yerda kalit = sha256(passphrase|salt|iter), keystream = sha256 hisoblagich rejimi, tag = sha256(kalit|AAD|ct)[0..16].
+ * AAD = count+index: bloklarni almashtirish/ko'chirish/chegaradan chiqarish tag'ni buzadi.
+ */
+function sealKey(passphrase: string, salt: Uint8Array, iter: number): Uint8Array {
+  return sha256(concatBytes(utf8ToBytes(passphrase), salt, u32(iter)));
+}
+function keystream(key: Uint8Array, length: number): Uint8Array {
+  const out = new Uint8Array(length);
+  for (let i = 0; i * 32 < length; i++) out.set(sha256(concatBytes(key, u32(i))).subarray(0, Math.min(32, length - i * 32)), i * 32);
+  return out;
+}
+const sealTag = (key: Uint8Array, count: number, index: number, ct: Uint8Array) =>
+  sha256(concatBytes(key, u32(count), u32(index), ct)).subarray(0, 16);
+
+function seal(key: Uint8Array, count: number, index: number, plain: Uint8Array): Uint8Array {
+  const ks = keystream(key, plain.length);
+  const ct = plain.map((b, i) => b ^ ks[i]!);
+  return concatBytes(ct, sealTag(key, count, index, ct));
+}
+/** null: autentifikatsiya muvaffaqiyatsiz (noto'g'ri parol YOKI buzilgan/almashtirilgan blob). */
+function unseal(key: Uint8Array, count: number, index: number, blob: Uint8Array): Uint8Array | null {
+  if (blob.length < 16) return null;
+  const ct = blob.subarray(0, blob.length - 16);
+  if (!bytesEqual(blob.subarray(blob.length - 16), sealTag(key, count, index, ct))) return null;
+  const ks = keystream(key, ct.length);
+  return ct.map((b, i) => b ^ ks[i]!);
+}
+
+interface Plain {
+  kind: "web" | "secret";
+  site: string;
+  username: string;
+  title?: string;
+  password: string;
+}
+/** web: kind+site+username; secret (site bo'sh): kind+username+title. */
+const dupKey = (kind: string, site: string, username: string, title = "") =>
+  kind === "secret" ? `secret\u0000${username}\u0000${title}` : `${kind}\u0000${site}\u0000${username}`;
+
 export interface MockOptions {
   /** Testlar uchun: KDF/ulanish kechikishlari va 500 ms guard o'chiriladi. */
   fast?: boolean;
@@ -81,6 +128,19 @@ export class MockTransport implements RawTransport {
   /** v0.5 import sessiyasi: `remaining` ta tugmasiz ADD_ENTRY, `deadline` (Date.now) dan keyin tugaydi. */
   private importSession: { remaining: number; added: number; deadline: number } | null = null;
 
+  /** v0.6 eksport sessiyasi: tasdiqdan keyin 120 s, snapshot'dan blob'lar beriladi. */
+  private exportSession: { key: Uint8Array; items: Plain[]; deadline: number } | null = null;
+  /** v0.6 tiklash sessiyasi. */
+  private restoreSession: {
+    key: Uint8Array;
+    count: number;
+    seen: Set<number>;
+    added: number;
+    skipped: number;
+    deadline: number;
+  } | null = null;
+  private exportCounter = 0;
+
   private pending: ((r: ConfirmResult) => void) | null = null;
   private pendingSince = 0;
 
@@ -96,6 +156,7 @@ export class MockTransport implements RawTransport {
   }
 
   async close(): Promise<void> {
+    this.endBackupSessions();
     this.importSession = null;
     this.pending?.("reject");
     this.closeListeners.forEach((l) => l());
@@ -124,6 +185,7 @@ export class MockTransport implements RawTransport {
   }
 
   private fail() {
+    this.endBackupSessions();
     this.importSession = null;
     this.noise = null;
     this.cipher = null;
@@ -171,13 +233,14 @@ export class MockTransport implements RawTransport {
   }
 
   private async process({ i, c, p = {} }: Request) {
-    await this.delay(c === "UNLOCK" || c === "ONBOARD" || c === "CHANGE_MASTER" ? 700 : 60); // KDF kechikishi
+    await this.delay(c === "UNLOCK" || c === "ONBOARD" || c === "CHANGE_MASTER" || c === "EXPORT_BEGIN" || c === "RESTORE_BEGIN" ? 700 : 60); // KDF kechikishi
     try {
       const r = await this.handle(c, p);
       if (this.closeAfterResponse) {
         // Joriy host bekor qilindi: javobdan keyin CLOSED hodisasi va kanal yopiladi.
         this.closeAfterResponse = false;
         this.importSession = null;
+        this.endBackupSessions();
         const cipher = this.cipher;
         this.noise = null;
         this.cipher = null;
@@ -205,6 +268,9 @@ export class MockTransport implements RawTransport {
   private async handle(cmd: string, p: Params): Promise<unknown> {
     const isTrusted = this.hostSlot() >= 0;
     if (!isTrusted && cmd !== "GET_STATUS" && cmd !== "PAIR_HOST") throw new Fault("NOT_TRUSTED");
+
+    // Eksport sessiyasi snapshot'ni muzlatadi: yozuvlarni o'zgartiruvchi buyruqlar BUSY qaytaradi.
+    if (["ADD_ENTRY", "UPDATE_ENTRY", "DELETE_ENTRY", "CHANGE_MASTER"].includes(cmd) && this.activeExport()) throw new Fault("BUSY");
 
     switch (cmd) {
       case "GET_STATUS":
@@ -244,6 +310,7 @@ export class MockTransport implements RawTransport {
       case "LOCK":
         if (this.state === "UNLOCKED") this.state = "LOCKED";
         this.importSession = null;
+        this.endBackupSessions();
         return {};
 
       case "LIST":
@@ -361,6 +428,114 @@ export class MockTransport implements RawTransport {
         return { added };
       }
 
+      case "EXPORT_BEGIN": {
+        this.requireUnlocked();
+        const passphrase = String(p.passphrase ?? "");
+        const n = utf8ToBytes(passphrase).length;
+        if (n < 10 || n > 128 || this.vault.size === 0 || this.anySession()) throw new Fault("INVALID_STATE");
+        await this.confirm({ action: "export", site: `${this.vault.size} ta yozuv` });
+        // Tasdiq paytida holat o'zgargan bo'lishi mumkin (LOCK/uzilish): qayta tekshiramiz.
+        this.requireUnlocked();
+        const items: Plain[] = [...this.vault.values()].map(({ meta, password }) => ({
+          kind: meta.kind,
+          site: meta.site,
+          username: meta.username,
+          ...(meta.title ? { title: meta.title } : {}),
+          password,
+        }));
+        const salt = sha256(concatBytes(utf8ToBytes("mock-salt"), u32(this.exportCounter++), utf8ToBytes(passphrase))).subarray(0, 16);
+        this.exportSession = { key: sealKey(passphrase, salt, BACKUP_ITER), items, deadline: Date.now() + BACKUP_SESSION_MS };
+        return { count: items.length, salt, iter: BACKUP_ITER };
+      }
+
+      case "EXPORT_GET": {
+        this.requireUnlocked();
+        const s = this.activeExport();
+        const index = Number(p.index);
+        if (!s || !Number.isInteger(index) || index < 0 || index >= s.items.length) throw new Fault("INVALID_STATE");
+        return { blob: seal(s.key, s.items.length, index, utf8ToBytes(JSON.stringify(s.items[index]))) };
+      }
+
+      case "EXPORT_END":
+        this.exportSession = null;
+        return {};
+
+      case "RESTORE_BEGIN": {
+        this.requireUnlocked();
+        const passphrase = String(p.passphrase ?? "");
+        const n = utf8ToBytes(passphrase).length;
+        const count = Number(p.count);
+        const iter = Number(p.iter);
+        const salt = p.salt;
+        if (
+          n < 10 || n > 128 ||
+          !(salt instanceof Uint8Array) || salt.length !== 16 ||
+          !Number.isInteger(iter) || iter < 100_000 || iter > 1_000_000 ||
+          !Number.isInteger(count) || count < 1 || count > MAX_ENTRIES ||
+          this.anySession()
+        ) {
+          throw new Fault("INVALID_STATE");
+        }
+        await this.confirm({ action: "restore", site: `${count} ta yozuv` });
+        this.requireUnlocked();
+        this.restoreSession = {
+          key: sealKey(passphrase, salt, iter),
+          count,
+          seen: new Set(),
+          added: 0,
+          skipped: 0,
+          deadline: Date.now() + BACKUP_SESSION_MS,
+        };
+        return {};
+      }
+
+      case "RESTORE_ENTRY": {
+        this.requireUnlocked();
+        const s = this.activeRestore();
+        const index = Number(p.index);
+        if (!s || !Number.isInteger(index) || index < 0 || index >= s.count || s.seen.has(index) || !(p.blob instanceof Uint8Array)) {
+          throw new Fault("INVALID_STATE");
+        }
+        const plain = unseal(s.key, s.count, index, p.blob);
+        if (!plain) {
+          this.restoreSession = null; // noto'g'ri parol yoki buzilgan fayl: sessiya tugaydi
+          throw new Fault("BAD_PASSWORD");
+        }
+        const item = this.parsePlain(plain);
+        if (!item) throw new Fault("INVALID_STATE");
+        s.seen.add(index);
+        const k = dupKey(item.kind, item.site, item.username, item.title);
+        let result: "added" | "duplicate" = "duplicate";
+        if ([...this.vault.values()].some((v) => dupKey(v.meta.kind, v.meta.site, v.meta.username, v.meta.title) === k)) {
+          s.skipped++;
+        } else {
+          if (this.vault.size >= MAX_ENTRIES) {
+            s.seen.delete(index); // sessiya qoladi
+            throw new Fault("INVALID_STATE");
+          }
+          result = "added";
+          const meta: EntryMeta = {
+            id: crypto.randomUUID(),
+            kind: item.kind,
+            site: item.site,
+            username: item.username,
+            title: item.title,
+            updatedAt: Date.now(),
+          };
+          this.vault.set(meta.id, { meta, password: item.password });
+          s.added++;
+        }
+        // Oxirgi yozuvdan keyin qurilma sessiyani o'zi yopadi (RESTORE_END keyin {0,0} qaytaradi).
+        if (s.seen.size >= s.count) this.restoreSession = null;
+        return { result };
+      }
+
+      case "RESTORE_END": {
+        const s = this.activeRestore();
+        this.restoreSession = null;
+        return { added: s?.added ?? 0, skipped: s?.skipped ?? 0 };
+      }
+
       case "LIST_HOSTS": {
         const cur = this.hostSlot();
         const hosts: { slot: number; fp: string; current: boolean }[] = [];
@@ -408,6 +583,45 @@ export class MockTransport implements RawTransport {
     return { entry: meta };
   }
 
+  private anySession() {
+    return this.activeSession() !== null || this.activeExport() !== null || this.activeRestore() !== null;
+  }
+
+  private endBackupSessions() {
+    this.exportSession = null;
+    this.restoreSession = null;
+  }
+
+  private activeExport() {
+    if (this.exportSession && Date.now() >= this.exportSession.deadline) this.exportSession = null;
+    return this.exportSession;
+  }
+
+  private activeRestore() {
+    if (this.restoreSession && Date.now() >= this.restoreSession.deadline) this.restoreSession = null;
+    return this.restoreSession;
+  }
+
+  private parsePlain(bytes: Uint8Array): Plain | null {
+    try {
+      const o = JSON.parse(new TextDecoder().decode(bytes)) as Partial<Plain>;
+      const enc = new TextEncoder();
+      const title = o.title ?? "";
+      if (
+        (o.kind !== "web" && o.kind !== "secret") ||
+        typeof o.site !== "string" || typeof o.username !== "string" || typeof o.password !== "string" ||
+        typeof title !== "string" || o.password.length < 1 ||
+        (o.kind === "web" ? o.site.length < 3 || o.username.length < 1 : o.site !== "" || title.length < 1) ||
+        enc.encode(o.site).length + enc.encode(o.username).length + enc.encode(title).length > META_BUDGET
+      ) {
+        return null;
+      }
+      return { kind: o.kind, site: o.site, username: o.username, password: o.password, ...(title ? { title } : {}) };
+    } catch {
+      return null;
+    }
+  }
+
   /** Faol import sessiyasi (120 s muddati o'tgan bo'lsa tugatadi). */
   private activeSession() {
     if (this.importSession && Date.now() >= this.importSession.deadline) this.importSession = null;
@@ -445,6 +659,7 @@ export class MockTransport implements RawTransport {
   /** Zavod holati: vault, pin qilingan hostlar va qurilma kaliti yo'qoladi. */
   private wipe() {
     this.importSession = null;
+    this.endBackupSessions();
     this.vault.clear();
     this.slots.fill(null);
     this.master = null;

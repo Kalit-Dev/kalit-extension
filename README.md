@@ -55,7 +55,7 @@ src/
   pages/      Marshrut sahifalari: vault, entry-form, import, settings, connect, pair, setup, unlock,
               popup-vault, popup-connect
   widgets/    Katta bloklar: manager-shell, popup-shell, entry-details-dialog, overlay-inline-menu, overlay-save-prompt
-  features/   Foydalanuvchi amallari: entry-form, import-entries, change-master-password, manage-hosts,
+  features/   Foydalanuvchi amallari: entry-form, import-entries, backup, change-master-password, manage-hosts,
               unlock-device, setup-device, pair-device, connect-device, device-session, reveal-credential, fill-credential
   entities/   Biznes obyektlari: device (store, holat, confirm UI), entry (isSecret, avatar, qidiruv)
   shared/     ui/ (shadcn + card, segmented, ...), lib/ (utils, domain, errors, kv, hooks),
@@ -68,9 +68,10 @@ Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
 USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
 Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
 
 **Import:** Manager'dagi Import sahifasi (Bitwarden JSON / CSV) boshlashdan oldin qurilmada bir marta tasdiqlanadi ("N ta yozuv"); shundan keyin barcha yozuvlar tugma bosilmasdan qo'shiladi. Boshqa amallar (parolni olish, o'chirish, yangilash...) har doim alohida tasdiq talab qiladi. Eski firmware'da (< 0.4.0) import ishlamaydi.
+**Zaxira:** Sozlamalar → Zaxira: yozuvlar qurilmada alohida zaxira paroli bilan shifrlanib `kalit-backup-YYYY-MM-DD.kalit` fayliga olinadi va shu paroldan tiklanadi. Zaxira paroli tiklanmaydi — yo'qolsa fayl ochilmaydi. Extension hech qachon ochiq matn parolni ko'rmaydi.
 Firmware: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware). Klassik ESP32 DevKit (CP210x/CH340) ham qo'llab-quvvatlanadi.
 
 Testlar: `pnpm test` (vitest).

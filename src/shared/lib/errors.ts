@@ -35,3 +35,18 @@ export function describeError(error: unknown): string {
   const detail = error && typeof error === "object" && "detail" in error ? error.detail : undefined;
   return (code === "INTERNAL" || code === "PORT_BUSY") && typeof detail === "string" && detail ? `${text}: ${detail}` : text;
 }
+
+/** Zaxira/tiklash kontekstida BAD_PASSWORD master emas, zaxira parolini bildiradi. */
+export function describeBackupError(error: unknown): string {
+  switch (errorCode(error)) {
+    case "BAD_PASSWORD":
+      return "Zaxira paroli noto'g'ri yoki fayl buzilgan";
+    case "INVALID_STATE":
+      return "Qurilma bu amalga tayyor emas: vault bo'sh, to'lib ketgan, boshqa sessiya ochiq yoki zaxira yozuvi yaroqsiz";
+    case "INTERNAL":
+      // Eski firmware v0.6 buyruqlarini bilmaydi.
+      return "Firmware zaxira buyruqlarini qo'llamaydi — yangilang (0.5.0+)";
+    default:
+      return describeError(error);
+  }
+}

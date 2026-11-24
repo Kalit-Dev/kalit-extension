@@ -28,6 +28,7 @@ const SETTINGS_NAV = [
   { to: "/settings/general", label: "Umumiy" },
   { to: "/settings/hosts", label: "Hostlar" },
   { to: "/settings/security", label: "Xavfsizlik" },
+  { to: "/settings/backup", label: "Zaxira" },
 ];
 
 /** Boshqaruv sahifasi qobig'i: qurilma holatiga qarab oqim (flow) yoki asosiy sidebar + kontent. */

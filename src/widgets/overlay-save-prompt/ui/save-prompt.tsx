@@ -67,14 +67,15 @@ export function SavePrompt() {
             <button
               type="button"
               onClick={() => decide("never")}
-              className="mr-auto text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              title="Bu sayt uchun hech qachon taklif qilinmasin"
+              className="mr-auto whitespace-nowrap rounded-sm text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Bu sayt uchun hech qachon
+              Hech qachon
             </button>
-            <Button size="sm" variant="outline" onClick={() => decide("dismiss")}>
+            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => decide("dismiss")}>
               Hozir emas
             </Button>
-            <Button size="sm" onClick={() => decide("save")}>
+            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => decide("save")}>
               Saqlash
             </Button>
           </div>

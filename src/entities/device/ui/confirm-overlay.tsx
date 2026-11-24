@@ -14,6 +14,8 @@ const TITLES: Record<ConfirmAction, string> = {
   revoke: "Hostni bekor qilish",
   reveal: "Maxfiy parolni ko'rsatish",
   import: "Importni tasdiqlash",
+  export: "Zaxira nusxani tasdiqlang",
+  restore: "Tiklashni tasdiqlang",
 };
 
 /** Qurilma tugma bosilishini kutayotganda butun panel ustida ko'rinadi. */

@@ -145,3 +145,79 @@ describe("device store: device key pinning and wipe", () => {
     expect(useDevice.getState().client).toBeNull();
   });
 });
+
+describe("device store: v0.6 encrypted backup", () => {
+  const PASS = "backup passphrase 1";
+
+  async function unlockedStore(device: MockTransport) {
+    plugged.current = device;
+    await useDevice.getState().connect("usb");
+    autoPress(device);
+    await useDevice.getState().pair();
+    await useDevice.getState().onboard(MASTER);
+    await useDevice.getState().refresh();
+  }
+  const addWeb = (n: number, username = "u") =>
+    useDevice.getState().addEntry({ origin: `https://s${n}.example.com`, username, password: `pw${n}` });
+
+  it("exportBackup -> file -> restoreBackup into another device; entries refresh, progress reported", async () => {
+    await unlockedStore(new MockTransport({ fast: true }));
+    await addWeb(1, "alice");
+    await addWeb(2, "bob");
+    const progress: string[] = [];
+    const file = await useDevice.getState().exportBackup(PASS, (p) => progress.push(`${p.stage}:${p.done}/${p.total}`));
+    expect(file.count).toBe(2);
+    expect(JSON.stringify(file)).not.toContain("alice");
+    expect(progress).toEqual(["confirm:0/0", "transfer:0/2", "transfer:1/2", "transfer:2/2"]);
+    expect(useDevice.getState().pending).toBeNull();
+
+    await useDevice.getState().disconnect();
+    await useDevice.getState().forgetDevice(); // a different physical device
+    await unlockedStore(new MockTransport({ fast: true }));
+    expect(useDevice.getState().entries).toEqual([]);
+    expect(await useDevice.getState().restoreBackup(file, PASS)).toEqual({ added: 2, skipped: 0 });
+    expect(useDevice.getState().entries.map((e) => e.username).sort()).toEqual(["alice", "bob"]);
+    expect(await useDevice.getState().restoreBackup(file, PASS)).toEqual({ added: 0, skipped: 2 });
+  });
+
+  it("wrong passphrase -> BAD_PASSWORD, nothing added, session closed (a later restore with the right one works)", async () => {
+    await unlockedStore(new MockTransport({ fast: true }));
+    await addWeb(1);
+    const file = await useDevice.getState().exportBackup(PASS);
+    await useDevice.getState().disconnect();
+    await useDevice.getState().forgetDevice(); // a different physical device
+    await unlockedStore(new MockTransport({ fast: true }));
+    const err = await useDevice.getState().restoreBackup(file, "some other passphrase").catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "BAD_PASSWORD" });
+    expect(JSON.stringify(err)).not.toContain("some other passphrase");
+    expect(useDevice.getState().entries).toEqual([]);
+    expect(await useDevice.getState().restoreBackup(file, PASS)).toEqual({ added: 1, skipped: 0 });
+  });
+
+  it("tampered file -> BAD_PASSWORD; a failed export leaves no session behind", async () => {
+    await unlockedStore(new MockTransport({ fast: true }));
+    await addWeb(1);
+    const file = await useDevice.getState().exportBackup(PASS);
+    const flipped = Uint8Array.from(atob(file.records[0]!), (c) => c.charCodeAt(0));
+    flipped[0] ^= 1;
+    const bad = { ...file, records: [btoa(String.fromCharCode(...flipped))] };
+    expect(await code(useDevice.getState().restoreBackup(bad, PASS))).toBe("BAD_PASSWORD");
+    // EXPORT_END ran in finally: a new export session can start right away
+    expect((await useDevice.getState().exportBackup(PASS)).count).toBe(1);
+  });
+
+  it("empty vault and invalid passphrases are refused as INVALID_STATE without leaking the passphrase", async () => {
+    await unlockedStore(new MockTransport({ fast: true }));
+    expect(await code(useDevice.getState().exportBackup(PASS))).toBe("INVALID_STATE"); // empty vault
+    const err = await useDevice.getState().exportBackup("short").catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "INVALID_STATE" });
+    expect(JSON.stringify(err)).not.toContain("short");
+  });
+
+  it("locked vault -> LOCKED", async () => {
+    await unlockedStore(new MockTransport({ fast: true }));
+    await addWeb(1);
+    await useDevice.getState().lock();
+    expect(await code(useDevice.getState().exportBackup(PASS))).toBe("LOCKED");
+  });
+});

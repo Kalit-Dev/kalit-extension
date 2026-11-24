@@ -445,3 +445,311 @@ describe("protocol v0.5 import session", () => {
     expect(await code(client.call("IMPORT_BEGIN", { count: 1 }))).toBe("LOCKED");
   });
 });
+
+describe("protocol v0.6 encrypted backup (mock)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const PASS = "backup passphrase 1";
+  const addWebN = (client: DeviceClient, n: number, username = "u") =>
+    client.call("ADD_ENTRY", { origin: `https://s${n}.example.com`, site: `s${n}.example.com`, username, password: `pw${n}` });
+  const confirms = (client: DeviceClient) => {
+    const seen: { action: string; site?: string }[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data));
+    return seen;
+  };
+  async function exportAll(client: DeviceClient, passphrase = PASS) {
+    const { count, salt, iter } = await client.call("EXPORT_BEGIN", { passphrase });
+    const blobs: Uint8Array[] = [];
+    for (let i = 0; i < count; i++) blobs.push((await client.call("EXPORT_GET", { index: i })).blob);
+    await client.call("EXPORT_END", {});
+    return { count, salt, iter, blobs };
+  }
+  /** A second, empty device that will receive the backup. */
+  async function fresh() {
+    return ready(new MockTransport({ fast: true }));
+  }
+  const restoreBegin = (client: DeviceClient, b: { salt: Uint8Array; iter: number; count: number }, passphrase = PASS) =>
+    client.call("RESTORE_BEGIN", { passphrase, salt: b.salt, iter: b.iter, count: b.count });
+
+  it("export: one confirmation (site '<n> ta yozuv'), GET without buttons, blobs are opaque and bound to index", async () => {
+    const { client } = await ready();
+    await addWebN(client, 1, "alice");
+    await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", password: "supersecret" });
+    const seen = confirms(client);
+    const b = await exportAll(client);
+    expect(seen).toEqual([{ action: "export", site: "2 ta yozuv", timeoutMs: 10_000 }]);
+    expect(b.count).toBe(2);
+    expect(b.salt).toHaveLength(16);
+    expect(b.iter).toBeGreaterThanOrEqual(100_000);
+    for (const blob of b.blobs) {
+      const text = new TextDecoder("latin1").decode(blob);
+      for (const secret of ["alice", "supersecret", "example.com", "Wi-Fi", "pw1"]) expect(text).not.toContain(secret);
+    }
+  });
+
+  it("export errors: bad passphrase length, empty vault, active session, locked, not trusted", async () => {
+    const { client } = await ready();
+    // Passphrase length is also validated host-side by the schema; the device-side check is covered by an empty-vault case.
+    expect(await code(client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("INVALID_STATE"); // empty vault
+    await addWebN(client, 1);
+    await client.call("EXPORT_BEGIN", { passphrase: PASS });
+    expect(await code(client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("INVALID_STATE"); // session active
+    expect(await code(client.call("RESTORE_BEGIN", { passphrase: PASS, salt: new Uint8Array(16), iter: 200_000, count: 1 }))).toBe(
+      "INVALID_STATE",
+    );
+    await client.call("EXPORT_END", {});
+    await client.call("LOCK", {});
+    expect(await code(client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("LOCKED");
+    expect(await code(client.call("EXPORT_GET", { index: 0 }))).toBe("LOCKED");
+
+    const stranger = connect(new MockTransport({ fast: true }));
+    await stranger.transport.open();
+    expect(await code(stranger.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("NOT_TRUSTED");
+    expect(await code(stranger.client.call("RESTORE_ENTRY", { index: 0, blob: new Uint8Array(20) }))).toBe("NOT_TRUSTED");
+  });
+
+  it("EXPORT_GET: INVALID_STATE without session and for index >= count; EXPORT_END is idempotent", async () => {
+    const { client } = await ready();
+    await addWebN(client, 1);
+    expect(await code(client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+    await client.call("EXPORT_END", {});
+    await client.call("EXPORT_BEGIN", { passphrase: PASS });
+    expect(await code(client.call("EXPORT_GET", { index: 1 }))).toBe("INVALID_STATE");
+    await client.call("EXPORT_GET", { index: 0 });
+    await client.call("EXPORT_END", {});
+    await client.call("EXPORT_END", {});
+    expect(await code(client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+  });
+
+  it("rejecting the export confirmation leaves no session", async () => {
+    const mock = new MockTransport({ fast: true });
+    const transport = new SecureTransport(mock, generateKeyPair(), {
+      pinnedDeviceKey: async () => null,
+      pinDeviceKey: async () => undefined,
+      hostName: "Test Host",
+      handshakeTimeoutMs: 500,
+    });
+    const client = new DeviceClient(transport);
+    let button: "short" | "long" = "short";
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(button)));
+    await transport.open();
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    await addWebN(client, 1);
+    button = "long";
+    expect(await code(client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("USER_REJECTED");
+    expect(await code(client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+    expect(await code(client.call("RESTORE_BEGIN", { passphrase: PASS, salt: new Uint8Array(16), iter: 200_000, count: 1 }))).toBe(
+      "USER_REJECTED",
+    );
+    expect(await client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it("round trip into an empty device: one confirmation, entries equal, passwords restored", async () => {
+    const src = await ready();
+    await addWebN(src.client, 1, "alice");
+    await src.client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "root", password: "s3cret" });
+    const b = await exportAll(src.client);
+
+    const dst = await fresh();
+    const seen = confirms(dst.client);
+    await restoreBegin(dst.client, b);
+    expect(seen).toEqual([{ action: "restore", site: "2 ta yozuv", timeoutMs: 10_000 }]);
+    const results = [];
+    for (let i = 0; i < b.count; i++) results.push((await dst.client.call("RESTORE_ENTRY", { index: i, blob: b.blobs[i]! })).result);
+    expect(results).toEqual(["added", "added"]);
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 }); // session closed itself after the last entry
+    expect(seen).toHaveLength(1);
+
+    const { entries } = await dst.client.call("LIST", {});
+    expect(entries.map((e) => [e.kind, e.site, e.username, e.title ?? null])).toEqual([
+      ["web", "s1.example.com", "alice", null],
+      ["secret", "", "root", "Wi-Fi"],
+    ]);
+    const web = entries.find((e) => e.kind === "web")!;
+    const cred = await dst.client.call("GET_CREDENTIAL", { id: web.id, origin: "https://s1.example.com" });
+    expect(cred).toEqual({ username: "alice", password: "pw1" });
+    const secret = entries.find((e) => e.kind === "secret")!;
+    expect((await dst.client.call("REVEAL_SECRET", { id: secret.id })).password).toBe("s3cret");
+  });
+
+  it("restoring twice marks everything duplicate (kind+site+username), and a full vault fails with INVALID_STATE", async () => {
+    const src = await ready();
+    await addWebN(src.client, 1, "alice");
+    await addWebN(src.client, 2, "bob");
+    const b = await exportAll(src.client);
+    // Same device: both already exist.
+    await restoreBegin(src.client, b);
+    for (let i = 0; i < b.count; i++) {
+      expect((await src.client.call("RESTORE_ENTRY", { index: i, blob: b.blobs[i]! })).result).toBe("duplicate");
+    }
+    expect(await src.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+
+    // Different device: one pre-existing, one new.
+    const dst = await fresh();
+    await addWebN(dst.client, 1, "alice");
+    await restoreBegin(dst.client, b);
+    expect((await dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! })).result).toBe("duplicate");
+    expect((await dst.client.call("RESTORE_ENTRY", { index: 1, blob: b.blobs[1]! })).result).toBe("added");
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+
+    // Full vault: the next new entry cannot fit.
+    const full = await fresh();
+    for (let i = 0; i < 32; i++) await full.client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
+    await restoreBegin(full.client, b);
+    expect(await code(full.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! }))).toBe("INVALID_STATE");
+    await full.client.call("RESTORE_END", {});
+  });
+
+  it("wrong passphrase -> BAD_PASSWORD on the first entry and the session ends", async () => {
+    const src = await ready();
+    await addWebN(src.client, 1);
+    await addWebN(src.client, 2);
+    const b = await exportAll(src.client);
+    const dst = await fresh();
+    await restoreBegin(dst.client, b, "a completely different one");
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! }))).toBe("BAD_PASSWORD");
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 1, blob: b.blobs[1]! }))).toBe("INVALID_STATE"); // session is gone
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+    expect((await dst.client.call("LIST", {})).entries).toEqual([]);
+  });
+
+  it("tampering: bit flip, swapped records, duplicated record, wrong salt / iter / count all fail", async () => {
+    const src = await ready();
+    for (let i = 1; i <= 3; i++) await addWebN(src.client, i);
+    const b = await exportAll(src.client);
+    const dst = await fresh();
+    const attempt = async (begin: { salt: Uint8Array; iter: number; count: number }, index: number, blob: Uint8Array) => {
+      await restoreBegin(dst.client, begin);
+      const c = await code(dst.client.call("RESTORE_ENTRY", { index, blob }));
+      await dst.client.call("RESTORE_END", {});
+      return c;
+    };
+    const flipped = Uint8Array.from(b.blobs[0]!);
+    flipped[3] ^= 1;
+    expect(await attempt(b, 0, flipped)).toBe("BAD_PASSWORD");
+    expect(await attempt(b, 0, b.blobs[1]!)).toBe("BAD_PASSWORD"); // swapped (index is bound)
+    expect(await attempt(b, 2, b.blobs[0]!)).toBe("BAD_PASSWORD"); // duplicated at another index
+    expect(await attempt(b, 0, b.blobs[0]!.subarray(0, 5))).toBe("BAD_PASSWORD"); // truncated
+    expect(await attempt({ ...b, count: 2 }, 0, b.blobs[0]!)).toBe("BAD_PASSWORD"); // count is bound
+    expect(await attempt({ ...b, iter: b.iter + 1 }, 0, b.blobs[0]!)).toBe("BAD_PASSWORD");
+    const salt = Uint8Array.from(b.salt);
+    salt[0] ^= 1;
+    expect(await attempt({ ...b, salt }, 0, b.blobs[0]!)).toBe("BAD_PASSWORD");
+    expect((await dst.client.call("LIST", {})).entries).toEqual([]);
+    expect(await attempt(b, 0, b.blobs[0]!)).toBeNull(); // the untouched backup still works
+  });
+
+  it("RESTORE_ENTRY: out-of-range index, replayed index, no session -> INVALID_STATE; RESTORE_END idempotent", async () => {
+    const src = await ready();
+    await addWebN(src.client, 1);
+    const b = await exportAll(src.client);
+    const dst = await fresh();
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! }))).toBe("INVALID_STATE");
+    await restoreBegin(dst.client, b);
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 1, blob: b.blobs[0]! }))).toBe("INVALID_STATE");
+    await dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! });
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! }))).toBe("INVALID_STATE"); // session closed itself
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it("RESTORE_BEGIN: second session and locked vault -> errors; schema rejects out-of-range iter/count/salt host-side", async () => {
+    const { client } = await ready();
+    const begin = { salt: new Uint8Array(16), iter: 200_000, count: 1 };
+    await restoreBegin(client, begin);
+    expect(await code(restoreBegin(client, begin))).toBe("INVALID_STATE");
+    await client.call("RESTORE_END", {});
+    await expect(restoreBegin(client, { ...begin, iter: 99_999 })).rejects.toThrow();
+    await expect(restoreBegin(client, { ...begin, iter: 1_000_001 })).rejects.toThrow();
+    await expect(restoreBegin(client, { ...begin, count: 0 })).rejects.toThrow();
+    await expect(restoreBegin(client, { ...begin, count: 33 })).rejects.toThrow();
+    await expect(restoreBegin(client, { ...begin, salt: new Uint8Array(15) })).rejects.toThrow();
+    await expect(restoreBegin(client, begin, "short")).rejects.toThrow();
+    await client.call("LOCK", {});
+    expect(await code(restoreBegin(client, begin))).toBe("LOCKED");
+  });
+
+  it("sessions expire 120 s after the confirmation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const src = await ready();
+    await addWebN(src.client, 1);
+    await src.client.call("EXPORT_BEGIN", { passphrase: PASS });
+    vi.setSystemTime(Date.now() + 119_000);
+    const { blob } = await src.client.call("EXPORT_GET", { index: 0 });
+    vi.setSystemTime(Date.now() + 2_000);
+    expect(await code(src.client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+    expect(await code(src.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBeNull(); // slot is free again
+    await src.client.call("EXPORT_END", {});
+
+    const dst = await fresh();
+    await restoreBegin(dst.client, { salt: new Uint8Array(16), iter: 200_000, count: 1 });
+    vi.setSystemTime(Date.now() + 121_000);
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 0, blob }))).toBe("INVALID_STATE");
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it("LOCK and a reconnect end export and restore sessions", async () => {
+    const mock = new MockTransport({ fast: true });
+    const identity = generateKeyPair();
+    const first = connect(mock, identity);
+    await first.transport.open();
+    await first.client.call("PAIR_HOST", {});
+    await first.client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    await addWebN(first.client, 1);
+    await first.client.call("EXPORT_BEGIN", { passphrase: PASS });
+    await first.client.call("LOCK", {});
+    await first.client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    expect(await code(first.client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+
+    await first.client.call("EXPORT_BEGIN", { passphrase: PASS });
+    await mock.close();
+    const second = connect(mock, identity);
+    await second.transport.open();
+    await second.client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    expect(await code(second.client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+    await second.client.call("RESTORE_BEGIN", { passphrase: PASS, salt: new Uint8Array(16), iter: 200_000, count: 1 });
+    await mock.close();
+    const third = connect(mock, identity);
+    await third.transport.open();
+    expect(await third.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it("RESTORE_END mid-session returns the running totals and ends it", async () => {
+    const src = await ready();
+    await addWebN(src.client, 1);
+    await addWebN(src.client, 2);
+    const b = await exportAll(src.client);
+    const dst = await fresh();
+    await restoreBegin(dst.client, b);
+    await dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! });
+    expect(await dst.client.call("RESTORE_END", {})).toEqual({ added: 1, skipped: 0 });
+    expect(await code(dst.client.call("RESTORE_ENTRY", { index: 1, blob: b.blobs[1]! }))).toBe("INVALID_STATE");
+  });
+
+  it("secret duplicates are kind+username+title; web duplicates are kind+site+username", async () => {
+    const src = await ready();
+    await src.client.call("ADD_ENTRY", { kind: "secret", title: "A", username: "u", password: "p1" });
+    await src.client.call("ADD_ENTRY", { kind: "secret", title: "B", username: "u", password: "p2" });
+    const b = await exportAll(src.client);
+    const dst = await fresh();
+    await dst.client.call("ADD_ENTRY", { kind: "secret", title: "A", username: "u", password: "other" });
+    await restoreBegin(dst.client, b);
+    expect((await dst.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! })).result).toBe("duplicate");
+    expect((await dst.client.call("RESTORE_ENTRY", { index: 1, blob: b.blobs[1]! })).result).toBe("added");
+    expect((await dst.client.call("LIST", {})).entries).toHaveLength(2);
+  });
+
+  it("while an export session is active ADD/UPDATE/DELETE_ENTRY and CHANGE_MASTER answer BUSY; reads still work", async () => {
+    const { client } = await ready();
+    const { entry } = await addWebN(client, 1);
+    await client.call("EXPORT_BEGIN", { passphrase: PASS });
+    expect(await code(addWebN(client, 2))).toBe("BUSY");
+    expect(await code(client.call("UPDATE_ENTRY", { id: entry.id, username: "v" }))).toBe("BUSY");
+    expect(await code(client.call("DELETE_ENTRY", { id: entry.id }))).toBe("BUSY");
+    expect(await code(client.call("CHANGE_MASTER", { oldPassword: "correct horse battery", newPassword: "another long passphrase" }))).toBe("BUSY");
+    expect((await client.call("LIST", {})).entries).toHaveLength(1);
+    await client.call("EXPORT_END", {});
+    expect(await code(addWebN(client, 2))).toBeNull();
+  });
+});

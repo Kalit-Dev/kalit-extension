@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   Commands,
+  BACKUP_KDF_TIMEOUT_MS,
   CONFIRM_TIMEOUT_MS,
   KDF_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
@@ -57,6 +58,8 @@ export class DeviceClient {
     const id = ++this.seq;
     const timeoutMs = cmd === "CHANGE_MASTER"
       ? CONFIRM_TIMEOUT_MS + 2 * KDF_TIMEOUT_MS
+      : cmd === "EXPORT_BEGIN" || cmd === "RESTORE_BEGIN"
+      ? CONFIRM_TIMEOUT_MS + BACKUP_KDF_TIMEOUT_MS
       : def.confirm
       ? CONFIRM_TIMEOUT_MS + 2_000
       : cmd === "UNLOCK" || cmd === "ONBOARD" || cmd === "CHANGE_MASTER"

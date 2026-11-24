@@ -5,6 +5,14 @@ import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, Ho
 import { SecureTransport } from "@/shared/api/device/secure-transport";
 import { SerialTransport } from "@/shared/api/device/serial-transport";
 import type { RawTransport, TransportKind } from "@/shared/api/device/transport";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  runExport,
+  runRestore,
+  type BackupFile,
+  type BackupProgress,
+} from "@/shared/api/device/backup";
 import { siteOf } from "@/shared/lib/domain";
 
 import { kvSet } from "@/shared/lib/kv";
@@ -43,6 +51,23 @@ interface DeviceStore {
   importBegin(count: number): Promise<void>;
   /** Sessiyani tugatadi; sessiyada qo'shilgan yozuvlar soni (idempotent). */
   importEnd(): Promise<number>;
+  /**
+   * v0.6 shifrlangan zaxira. Bayt qiymatlari base64 satr (engine <-> popup JSON). Parol faqat chaqiruv davomida
+   * xotirada; hech qayerda saqlanmaydi va xatolarga tushmaydi.
+   */
+  exportBegin(passphrase: string): Promise<{ count: number; salt: string; iter: number }>;
+  exportGet(index: number): Promise<string>;
+  exportEnd(): Promise<void>;
+  restoreBegin(passphrase: string, salt: string, iter: number, count: number): Promise<void>;
+  restoreEntry(index: number, blob: string): Promise<"added" | "duplicate">;
+  restoreEnd(): Promise<{ added: number; skipped: number }>;
+  exportBackup(passphrase: string, onProgress?: (p: BackupProgress) => void): Promise<BackupFile>;
+  /** Tugagach vault ro'yxati yangilanadi. */
+  restoreBackup(
+    file: BackupFile,
+    passphrase: string,
+    onProgress?: (p: BackupProgress) => void,
+  ): Promise<{ added: number; skipped: number }>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
@@ -206,6 +231,43 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     async importEnd() {
       const { added } = await client().call("IMPORT_END", {});
       return added;
+    },
+
+    async exportBegin(passphrase) {
+      const { count, salt, iter } = await client().call("EXPORT_BEGIN", { passphrase });
+      return { count, salt: bytesToBase64(salt), iter };
+    },
+
+    async exportGet(index) {
+      return bytesToBase64((await client().call("EXPORT_GET", { index })).blob);
+    },
+
+    async exportEnd() {
+      await client().call("EXPORT_END", {});
+    },
+
+    async restoreBegin(passphrase, salt, iter, count) {
+      await client().call("RESTORE_BEGIN", { passphrase, salt: base64ToBytes(salt), iter, count });
+    },
+
+    async restoreEntry(index, blob) {
+      return (await client().call("RESTORE_ENTRY", { index, blob: base64ToBytes(blob) })).result;
+    },
+
+    async restoreEnd() {
+      return client().call("RESTORE_END", {});
+    },
+
+    exportBackup(passphrase, onProgress) {
+      return runExport(get(), passphrase, onProgress);
+    },
+
+    async restoreBackup(file, passphrase, onProgress) {
+      try {
+        return await runRestore(get(), file, passphrase, onProgress);
+      } finally {
+        await get().refresh().catch(() => undefined);
+      }
     },
 
     async deleteEntry(id) {

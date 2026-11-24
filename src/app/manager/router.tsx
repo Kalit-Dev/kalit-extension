@@ -3,7 +3,7 @@ import { ConnectPage } from "@/pages/connect";
 import { EntryFormPage } from "@/pages/entry-form";
 import { ImportPage } from "@/pages/import";
 import { PairPage } from "@/pages/pair";
-import { SettingsGeneralPage, SettingsHostsPage, SettingsLayout, SettingsSecurityPage } from "@/pages/settings";
+import { SettingsBackupPage, SettingsGeneralPage, SettingsHostsPage, SettingsLayout, SettingsSecurityPage } from "@/pages/settings";
 import { SetupDonePage, SetupPage } from "@/pages/setup";
 import { UnlockPage } from "@/pages/unlock";
 import { VaultPage } from "@/pages/vault";
@@ -32,6 +32,7 @@ export const router = createHashRouter([
           { path: "general", element: <SettingsGeneralPage /> },
           { path: "hosts", element: <SettingsHostsPage /> },
           { path: "security", element: <SettingsSecurityPage /> },
+          { path: "backup", element: <SettingsBackupPage /> },
         ],
       },
       { path: "/hosts", element: <Navigate to="/settings/hosts" replace /> },

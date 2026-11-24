@@ -12,6 +12,8 @@ import { z } from "zod";
 
 export const CONFIRM_TIMEOUT_MS = 10_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
+/** v0.6: *_BEGIN tasdiqdan keyin qurilma PBKDF2 hisoblaydi (ESP32'da ~1-3 s; zaxira bilan 30 s). */
+export const BACKUP_KDF_TIMEOUT_MS = 30_000;
 /** UNLOCK/ONBOARD: qurilmada PBKDF2 (ESP32'da soniyalar) — oddiy timeout yetmaydi. */
 export const KDF_TIMEOUT_MS = 30_000;
 
@@ -57,7 +59,7 @@ export type Status = z.infer<typeof Status>;
 export const Credential = z.object({ username: z.string(), password: z.string() });
 export type Credential = z.infer<typeof Credential>;
 
-export const ConfirmAction = z.enum(["pair", "fill", "save", "delete", "master", "update", "revoke", "reveal", "import"]);
+export const ConfirmAction = z.enum(["pair", "fill", "save", "delete", "master", "update", "revoke", "reveal", "import", "export", "restore"]);
 export type ConfirmAction = z.infer<typeof ConfirmAction>;
 
 export const ConfirmInfo = z.object({
@@ -121,6 +123,13 @@ export type HostInfo = z.infer<typeof HostInfo>;
 
 const Empty = z.object({});
 
+const utf8Len = (s: string) => new TextEncoder().encode(s).length;
+/** v0.6: zaxira paroli — UTF-8 bo'yicha 10..128 bayt. */
+export const BackupPassphrase = z
+  .string()
+  .refine((s) => utf8Len(s) >= 10 && utf8Len(s) <= 128, { message: "passphrase must be 10..128 UTF-8 bytes" });
+const Bytes = z.custom<Uint8Array>((v) => v instanceof Uint8Array, "bytes expected");
+
 /** Buyruqlar ro'yxati — firmware bilan umumiy kontrakt. */
 export const Commands = {
   // Host Noise static key orqali aniqlanadi (hostId yo'q).
@@ -164,6 +173,36 @@ export const Commands = {
   },
   /** Idempotent: sessiya bo'lmasa ham {added: 0}. Tasdiq talab qilinmaydi. */
   IMPORT_END: { params: Empty, result: z.object({ added: z.number().int().nonnegative() }), confirm: false },
+  // v0.6: shifrlangan zaxira. Kripto to'liq qurilmada; extension faqat shaffof (opaque) blob'larni tashiydi.
+  EXPORT_BEGIN: {
+    params: z.object({ passphrase: BackupPassphrase }),
+    result: z.object({ count: z.number().int().nonnegative(), salt: Bytes.refine((b) => b.length === 16), iter: z.number().int().positive() }),
+    confirm: true,
+  },
+  EXPORT_GET: { params: z.object({ index: z.number().int().nonnegative() }), result: z.object({ blob: Bytes }), confirm: false },
+  /** Idempotent: istalgan paytda xavfsiz (finally'da chaqiring). */
+  EXPORT_END: { params: Empty, result: Empty, confirm: false },
+  RESTORE_BEGIN: {
+    params: z.object({
+      passphrase: BackupPassphrase,
+      salt: Bytes.refine((b) => b.length === 16),
+      iter: z.number().int().min(100_000).max(1_000_000),
+      count: z.number().int().min(1).max(32),
+    }),
+    result: Empty,
+    confirm: true,
+  },
+  RESTORE_ENTRY: {
+    params: z.object({ index: z.number().int().nonnegative(), blob: Bytes }),
+    result: z.object({ result: z.enum(["added", "duplicate"]) }),
+    confirm: false,
+  },
+  /** Idempotent: sessiya bo'lmasa ham {added: 0, skipped: 0}. */
+  RESTORE_END: {
+    params: Empty,
+    result: z.object({ added: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() }),
+    confirm: false,
+  },
 } as const;
 
 export type CommandName = keyof typeof Commands;

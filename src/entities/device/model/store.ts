@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { DeviceError, type ClientErrorCode } from "@/shared/api/device/client";
+import { runExport, runRestore, type BackupFile, type BackupProgress } from "@/shared/api/device/backup";
 import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/shared/api/device/protocol";
 import type { TransportKind } from "@/shared/api/device/transport";
 import {
@@ -34,6 +35,13 @@ interface DeviceStore extends EngineSnapshot {
   deleteEntry(id: string): Promise<void>;
   importBegin(count: number): Promise<void>;
   importEnd(): Promise<number>;
+  /** v0.6: oqim shu yerda (popup/manager) boshqariladi, progress uchun; engine faqat alohida buyruqlarni bajaradi. */
+  exportBackup(passphrase: string, onProgress?: (p: BackupProgress) => void): Promise<BackupFile>;
+  restoreBackup(
+    file: BackupFile,
+    passphrase: string,
+    onProgress?: (p: BackupProgress) => void,
+  ): Promise<{ added: number; skipped: number }>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
@@ -79,6 +87,16 @@ export const useDevice = create<DeviceStore>()((set) => {
     return reply.value as T;
   }
 
+  const backupApi = {
+    exportBegin: (passphrase: string) => call<{ count: number; salt: string; iter: number }>("exportBegin", passphrase),
+    exportGet: (index: number) => call<string>("exportGet", index),
+    exportEnd: () => call("exportEnd"),
+    restoreBegin: (passphrase: string, salt: string, iter: number, count: number) =>
+      call("restoreBegin", passphrase, salt, iter, count),
+    restoreEntry: (index: number, blob: string) => call<"added" | "duplicate">("restoreEntry", index, blob),
+    restoreEnd: () => call<{ added: number; skipped: number }>("restoreEnd"),
+  };
+
   return {
     ...initial,
     connect: (kind, opts) => call("connect", kind, opts),
@@ -95,6 +113,14 @@ export const useDevice = create<DeviceStore>()((set) => {
     deleteEntry: (id) => call("deleteEntry", id),
     importBegin: (count) => call("importBegin", count),
     importEnd: () => call<number>("importEnd"),
+    exportBackup: (passphrase, onProgress) => runExport(backupApi, passphrase, onProgress),
+    async restoreBackup(file, passphrase, onProgress) {
+      try {
+        return await runRestore(backupApi, file, passphrase, onProgress);
+      } finally {
+        await call("refresh").catch(() => undefined); // yozuvlar ro'yxati yangilansin
+      }
+    },
     changeMaster: (oldPassword, newPassword) => call("changeMaster", oldPassword, newPassword),
     updateEntry: (id, patch) => call<EntryMeta>("updateEntry", id, patch),
     listHosts: () => call<HostInfo[]>("listHosts"),

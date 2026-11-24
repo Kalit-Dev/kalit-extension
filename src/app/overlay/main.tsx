@@ -34,6 +34,8 @@ function Root() {
 }
 
 initTheme();
+// Iframe shaffof bo'lishi uchun: sahifa color-scheme'i bilan farq qilsa brauzer iframe'ga qattiq fon beradi.
+document.documentElement.style.colorScheme = "normal";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

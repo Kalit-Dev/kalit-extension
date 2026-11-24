@@ -6,6 +6,9 @@ describe("isEngineRequest", () => {
     expect(isEngineRequest({ target: "engine", op: "unlock", args: ["x"] })).toBe(true);
     expect(isEngineRequest({ target: "engine", op: "revealSecret", args: ["id"] })).toBe(true);
     expect(isEngineRequest({ target: "engine", op: "importBegin", args: [3] })).toBe(true);
+    for (const op of ["exportBegin", "exportGet", "exportEnd", "restoreBegin", "restoreEntry", "restoreEnd"]) {
+      expect(isEngineRequest({ target: "engine", op, args: [] })).toBe(true);
+    }
     expect(isEngineRequest({ target: "engine", op: "importEnd", args: [] })).toBe(true);
     expect(isEngineRequest({ target: "engine", op: "rm -rf", args: [] })).toBe(false);
     expect(isEngineRequest({ target: "engine", op: "lock" })).toBe(false);

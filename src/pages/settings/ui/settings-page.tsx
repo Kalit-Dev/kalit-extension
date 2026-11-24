@@ -6,6 +6,7 @@ const TABS = [
   { to: "/settings/general", label: "Umumiy" },
   { to: "/settings/hosts", label: "Hostlar" },
   { to: "/settings/security", label: "Xavfsizlik" },
+  { to: "/settings/backup", label: "Zaxira" },
 ] as const;
 
 /** Sozlamalar: sarlavha + route asosidagi tab'lar (sidebar'dagi ichki menyu bilan sinxron). */

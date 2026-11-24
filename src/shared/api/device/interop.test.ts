@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { base64ToBytes, bytesToBase64, runExport, runRestore, type BackupDeviceApi } from "./backup";
 import { DeviceClient, DeviceError } from "./client";
 import { encodeFrame, FrameReader } from "./cobs";
 import { generateKeyPair, type KeyPair } from "./noise";
@@ -88,10 +89,10 @@ const code = async (p: Promise<unknown>) => {
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "0.4.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "0.5.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.4.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.5.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
     await client.call("PAIR_HOST", {});
@@ -353,5 +354,109 @@ describe.skipIf(!available)("interop: wipe, attempts and device-key pinning agai
       expect([origin, site, got === null]).toEqual([origin, site, expected]);
       if (!expected) expect([origin, site, got]).toEqual([origin, site, "ORIGIN_MISMATCH"]);
     }
+  }, 60_000);
+});
+
+/** v0.6 backup needs firmware >= 0.5.0; older (or missing) binaries skip these tests. */
+const backupSupported = available && (await (async () => {
+  try {
+    const { secure } = await start("accept");
+    const [maj = 0, min = 0] = (secure.deviceInfo?.fw ?? "0.0.0").split(".").map(Number);
+    await Promise.all(open.splice(0).map((t) => t.close()));
+    return maj > 0 || min >= 5;
+  } catch {
+    return false;
+  }
+})());
+if (available && !backupSupported) console.warn("[interop] v0.6 backup tests SKIPPED: native firmware < 0.5.0");
+
+function backupApi(client: DeviceClient): BackupDeviceApi {
+  return {
+    exportBegin: async (passphrase) => {
+      const r = await client.call("EXPORT_BEGIN", { passphrase });
+      return { count: r.count, salt: bytesToBase64(r.salt), iter: r.iter };
+    },
+    exportGet: async (index) => bytesToBase64((await client.call("EXPORT_GET", { index })).blob),
+    exportEnd: async () => void (await client.call("EXPORT_END", {})),
+    restoreBegin: async (passphrase, salt, iter, count) => void (await client.call("RESTORE_BEGIN", { passphrase, salt: base64ToBytes(salt), iter, count })),
+    restoreEntry: async (index, blob) => (await client.call("RESTORE_ENTRY", { index, blob: base64ToBytes(blob) })).result,
+    restoreEnd: () => client.call("RESTORE_END", {}),
+  };
+}
+
+describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the real firmware", () => {
+  const MASTER = "correct horse battery";
+  const PASS = "backup passphrase 1";
+
+  async function device() {
+    const d = await start("accept");
+    await d.client.call("PAIR_HOST", {});
+    await d.client.call("ONBOARD", { masterPassword: MASTER });
+    return d;
+  }
+
+  it("export -> wiped/fresh device -> restore reproduces entries and passwords; wrong passphrase and tampering fail", async () => {
+    const a = await device();
+    const seen: string[] = [];
+    a.client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(`${e.data.action}:${e.data.site ?? ""}`));
+    await a.client.call("ADD_ENTRY", { origin: "https://accounts.example.com", site: "example.com", username: "ali", password: "pw-ali" });
+    await a.client.call("ADD_ENTRY", { origin: "https://b.example.org", site: "example.org", username: "bob", password: "pw-bob" });
+    await a.client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "root", password: "pw-wifi" });
+    seen.length = 0;
+
+    const file = await runExport(backupApi(a.client), PASS);
+    expect(seen).toEqual(["export:3 ta yozuv"]);
+    expect(file).toMatchObject({ format: "kalit-backup", version: 1, count: 3 });
+    const raw = file.records.map((r) => new TextDecoder("latin1").decode(base64ToBytes(r))).join("|");
+    expect(raw).not.toMatch(/example|pw-ali|pw-bob|pw-wifi|Wi-Fi/);
+    for (const r of file.records) expect(base64ToBytes(r).length).toBeLessThanOrEqual(1127);
+    const before = (await a.client.call("LIST", {})).entries;
+
+    const b = await device(); // fresh (wiped) device
+    const seenB: string[] = [];
+    b.client.onEvent((e) => e.event === "CONFIRM_PENDING" && seenB.push(`${e.data.action}:${e.data.site ?? ""}`));
+
+    // wrong passphrase: BAD_PASSWORD, nothing stored
+    await expect(runRestore(backupApi(b.client), file, "wrong passphrase 99")).rejects.toMatchObject({ code: "BAD_PASSWORD" });
+    expect((await b.client.call("LIST", {})).entries).toEqual([]);
+
+    // tampered blob: BAD_PASSWORD
+    const tampered = base64ToBytes(file.records[1]!);
+    tampered[tampered.length - 1] ^= 1;
+    const bad = { ...file, records: [file.records[0]!, bytesToBase64(tampered), file.records[2]!] };
+    await expect(runRestore(backupApi(b.client), bad, PASS)).rejects.toMatchObject({ code: "BAD_PASSWORD" });
+    // swapped records are bound to the index
+    const swapped = { ...file, records: [file.records[1]!, file.records[0]!, file.records[2]!] };
+    await expect(runRestore(backupApi(b.client), swapped, PASS)).rejects.toMatchObject({ code: "BAD_PASSWORD" });
+
+    seenB.length = 0;
+    // The tampered attempt had already stored record 0 before failing at record 1 (restore is not atomic): it is now a duplicate.
+    expect(await runRestore(backupApi(b.client), file, PASS)).toEqual({ added: 2, skipped: 1 });
+    expect(seenB.filter((s) => s.startsWith("restore"))).toEqual(["restore:3 ta yozuv"]);
+    const after = (await b.client.call("LIST", {})).entries;
+    const key = (e: { kind: string; site: string; username: string; title?: string }) => `${e.kind}|${e.site}|${e.username}|${e.title ?? ""}`;
+    expect(after.map(key).sort()).toEqual(before.map(key).sort());
+    const web = after.find((e) => e.site === "example.com")!;
+    expect(await b.client.call("GET_CREDENTIAL", { id: web.id, origin: "https://accounts.example.com" })).toEqual({ username: "ali", password: "pw-ali" });
+    const secret = after.find((e) => e.kind === "secret")!;
+    expect((await b.client.call("REVEAL_SECRET", { id: secret.id })).password).toBe("pw-wifi");
+
+    // restoring again: everything is a duplicate
+    expect(await runRestore(backupApi(b.client), file, PASS)).toEqual({ added: 0, skipped: 3 });
+  }, 90_000);
+
+  it("contract errors: empty vault, bad index, no session, bad passphrase length", async () => {
+    const a = await device();
+    expect(await code(a.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("INVALID_STATE"); // empty vault
+    await a.client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "u", password: "pw" });
+    expect(await code(a.client.call("EXPORT_GET", { index: 0 }))).toBe("INVALID_STATE");
+    await a.client.call("EXPORT_BEGIN", { passphrase: PASS });
+    expect(await code(a.client.call("EXPORT_GET", { index: 1 }))).toBe("INVALID_STATE");
+    expect(await code(a.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("INVALID_STATE");
+    await a.client.call("EXPORT_END", {});
+    await a.client.call("EXPORT_END", {}); // idempotent
+    expect(await a.client.call("RESTORE_END", {})).toEqual({ added: 0, skipped: 0 });
+    await a.client.call("LOCK", {});
+    expect(await code(a.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("LOCKED");
   }, 60_000);
 });
