@@ -15,6 +15,7 @@ export function useAudit(entries: readonly EntryMeta[]) {
   const [running, setRunning] = useState(false);
   const signature = useMemo(() => entriesSignature(entries), [entries]);
   const ranFor = useRef<string | null>(null);
+  const triedFor = useRef<string | null>(null); // xato bo'lsa shu to'plam uchun qayta-qayta urinmaymiz
 
   useEffect(() => {
     if (ranFor.current !== signature) setReport(null);
@@ -23,6 +24,7 @@ export function useAudit(entries: readonly EntryMeta[]) {
   const run = useCallback(async () => {
     setRunning(true);
     const sig = signature;
+    triedFor.current = sig;
     try {
       const next = await audit();
       ranFor.current = sig;
@@ -33,6 +35,11 @@ export function useAudit(entries: readonly EntryMeta[]) {
       setRunning(false);
     }
   }, [audit, signature]);
+
+  // Avtomatik: sahifa ochilganda va yozuvlar to'plami o'zgarganda (tasdiqsiz, qurilma ichida hisoblanadi).
+  useEffect(() => {
+    if (entries.length > 0 && !running && ranFor.current !== signature && triedFor.current !== signature) void run();
+  }, [entries.length, running, signature, run]);
 
   const flags = useMemo(() => flagsById(report), [report]);
   return { report, running, run, flags };

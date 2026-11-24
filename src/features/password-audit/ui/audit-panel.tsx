@@ -27,7 +27,9 @@ export function AuditPanel({ report, running, onRun, onlyFlagged, onToggleFlagge
         <span className="text-muted-foreground" aria-live="polite">
           {report
             ? summary ?? `${report.total} ta parolda takror yoki zaiflik topilmadi`
-            : "Takroriy va zaif parollar qurilmada tekshiriladi; parollar qurilmadan chiqmaydi."}
+            : running
+              ? "Qurilmada tekshirilmoqda…"
+              : "Takroriy va zaif parollar qurilmada tekshiriladi; parollar qurilmadan chiqmaydi."}
         </span>
       </span>
       {report && summary && (
@@ -35,6 +37,7 @@ export function AuditPanel({ report, running, onRun, onlyFlagged, onToggleFlagge
           Faqat muammolilar
         </Button>
       )}
+      {/* Avtomatik tekshiruv xato bilan tugasa ham qo'lda qayta urinish mumkin bo'lsin. */}
       <Button type="button" variant="outline" size="sm" onClick={onRun} disabled={running}>
         {running && <Loader2 className="animate-spin" />}
         {report ? "Qayta tekshirish" : "Tekshirish"}
