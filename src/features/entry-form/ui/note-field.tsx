@@ -50,6 +50,7 @@ export function NoteField({ form, entry }: Props) {
 
   return (
     <Disclosure
+      dense
       id="note"
       icon={NotebookPen}
       title="Maxfiy eslatma"

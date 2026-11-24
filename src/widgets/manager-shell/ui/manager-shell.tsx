@@ -146,7 +146,7 @@ export function ManagerShell() {
           <LockButton variant="outline" />
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div key={pathname} className="mx-auto w-full max-w-3xl animate-in px-6 py-8 duration-300 fade-in-0 slide-in-from-bottom-1">
+          <div key={pathname.startsWith("/vault") ? "/vault" : pathname} className="mx-auto w-full max-w-3xl animate-in px-6 py-8 duration-300 fade-in-0 slide-in-from-bottom-1">
             <Outlet />
           </div>
         </main>

@@ -20,9 +20,14 @@ export const router = createHashRouter([
       { path: "/setup", element: <SetupPage /> },
       { path: "/setup/done", element: <SetupDonePage /> },
       { path: "/unlock", element: <UnlockPage /> },
-      { path: "/vault", element: <VaultPage /> },
-      { path: "/vault/new", element: <EntryFormPage /> },
-      { path: "/vault/:id/edit", element: <EntryFormPage /> },
+      {
+        path: "/vault",
+        element: <VaultPage />,
+        children: [
+          { path: "new", element: <EntryFormPage /> },
+          { path: ":id/edit", element: <EntryFormPage /> },
+        ],
+      },
       { path: "/import", element: <Navigate to="/settings/import" replace /> },
       { path: "/security", element: <Navigate to="/settings/security" replace /> },
       {

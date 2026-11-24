@@ -35,6 +35,7 @@ export function TotpField({ form, installed, replacing, onReplace, onClearToggle
 
   return (
     <Disclosure
+      dense
       id="totp"
       icon={KeyRound}
       title="2FA kaliti (TOTP)"

@@ -1,6 +1,6 @@
 import { ChevronRight, Clock, Globe, KeyRound, Lock, Plus, Search, ShieldCheck, StickyNote } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, Outlet, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import {
@@ -165,6 +165,7 @@ export function VaultPage() {
         </div>
       )}
 
+      <Outlet />
       {selected && <EntryDetailsDialog entry={selected} onClose={() => setSelectedId(null)} onDelete={remove} />}
     </>
   );

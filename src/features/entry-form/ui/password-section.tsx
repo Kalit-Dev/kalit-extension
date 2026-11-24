@@ -1,11 +1,12 @@
-import { Cpu, KeyRound, PenLine } from "lucide-react";
+import { Cpu, PenLine } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
+import { Disclosure } from "@/shared/ui/disclosure";
 import { Field } from "@/shared/ui/field";
 import { PasswordInput } from "@/shared/ui/password-input";
 import { PasswordStrengthMeter } from "@/shared/ui/password-strength-meter";
 import { Segmented } from "@/shared/ui/segmented";
-import { Section } from "@/shared/ui/section";
-import type { GeneratorSettings } from "../model/generator-options";
+import { useState } from "react";
+import { describeGenerator, type GeneratorSettings } from "../model/generator-options";
 import type { Values } from "../model/entry-schema";
 import { GeneratorOptions } from "./generator-options";
 
@@ -21,44 +22,39 @@ interface Props {
   onGen: (next: GeneratorSettings) => void;
 }
 
-/** Parol bo'limi: yangi yozuvda qurilmada yaratish yoki qo'lda kiritish; tahrirlashda faqat yangi parol (ixtiyoriy). */
+/** Parol: yangi yozuvda standart — qurilmada yaratish (sozlamalar yig'ilgan); yoki qo'lda. Tahrirlashda faqat yangi parol (ixtiyoriy). */
 export function PasswordSection({ form, editing, gen, onGen }: Props) {
   const mode = form.watch("mode");
   const password = form.watch("password");
   const { errors } = form.formState;
   const generating = mode === "generate" && !editing;
+  const [open, setOpen] = useState(false);
 
   return (
-    <Section
-      icon={KeyRound}
-      title="Parol"
-      description={
-        editing
-          ? "Bo'sh qoldirsangiz, parol o'zgarmaydi."
-          : generating
-            ? "Parol qurilmaning o'zida yaratiladi."
-            : "Parolni o'zingiz kiriting; u qurilmada shifrlanib saqlanadi."
-      }
-      action={
-        !editing && (
-          <Segmented
-            compact
-            label="Parol manbai"
-            value={mode}
-            options={MODES}
-            onChange={(v) => form.setValue("mode", v)}
-          />
-        )
-      }
-    >
+    <div className="grid gap-3">
+      {!editing && (
+        <Segmented fill compact label="Parol manbai" value={mode} options={MODES} onChange={(v) => form.setValue("mode", v)} />
+      )}
       {generating ? (
-        <GeneratorOptions value={gen} onChange={onGen} />
+        <div className="overflow-hidden rounded-xl border">
+          <Disclosure
+            dense
+            id="gen"
+            icon={Cpu}
+            title="Parol qurilmada yaratiladi"
+            summary={`${describeGenerator(gen)} · sozlash`}
+            open={open}
+            onToggle={() => setOpen((o) => !o)}
+          >
+            <GeneratorOptions value={gen} onChange={onGen} />
+          </Disclosure>
+        </div>
       ) : (
-        <div className="grid gap-3">
-          <Field htmlFor="password" label={editing ? "Yangi parol" : "Parol"} error={errors.password?.message}>
+        <div className="grid gap-2">
+          <Field htmlFor="password" label={editing ? "Yangi parol (ixtiyoriy)" : "Parol"} error={errors.password?.message}>
             <PasswordInput
               id="password"
-              placeholder={editing ? "Yangi parol (ixtiyoriy)" : "Parolni kiriting"}
+              placeholder={editing ? "Bo'sh qoldirsangiz, parol o'zgarmaydi" : "Parolni kiriting"}
               aria-invalid={!!errors.password}
               {...form.register("password")}
             />
@@ -66,6 +62,6 @@ export function PasswordSection({ form, editing, gen, onGen }: Props) {
           {password && <PasswordStrengthMeter password={password} />}
         </div>
       )}
-    </Section>
+    </div>
   );
 }

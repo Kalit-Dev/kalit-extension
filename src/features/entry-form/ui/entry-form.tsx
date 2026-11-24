@@ -1,8 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Globe, Layers, Loader2, Lock, ShieldCheck } from "lucide-react";
+import { Globe, Loader2, Lock, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { EntryAvatar, isSecret } from "@/entities/entry";
@@ -15,22 +15,25 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Field } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Section } from "@/shared/ui/section";
+import { Segmented } from "@/shared/ui/segmented";
 import { DEFAULT_GENERATOR, generatorError, generatorParams, type GeneratorSettings } from "../model/generator-options";
 import { schema, type Values } from "../model/entry-schema";
-import { KindPicker } from "./kind-picker";
 import { NoteField } from "./note-field";
 import { PasswordSection } from "./password-section";
 import { TotpField } from "./totp-field";
 
+const KINDS = [
+  { value: "web", label: "Veb sayt", icon: Globe },
+  { value: "secret", label: "Maxfiy yozuv", icon: Lock },
+] as const;
+
 /** Yangi yozuv (/vault/new) va tahrirlash (/vault/:id/edit) uchun umumiy forma. */
-export function EntryForm() {
+export function EntryForm({ onClose }: { onClose: () => void }) {
   const { id } = useParams();
   const editing = id !== undefined;
   const entry = useDevice((s) => s.entries.find((e) => e.id === id));
   const addEntry = useDevice((s) => s.addEntry);
   const updateEntry = useDevice((s) => s.updateEntry);
-  const navigate = useNavigate();
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -100,7 +103,7 @@ export function EntryForm() {
         if (totp) patch.totp = totp;
         else if (v.clearTotp && totpInstalled) patch.totp = ""; // bo'sh = TOTP'ni o'chirish
         if (Object.keys(patch).length === 0) {
-          navigate("/vault");
+          onClose();
           return;
         }
         await updateEntry(entry.id, patch);
@@ -158,41 +161,42 @@ export function EntryForm() {
       }
       form.reset(); // parol, eslatma va 2FA kaliti formada qolmasin
       toast.success("Saqlandi");
-      navigate("/vault");
+      onClose();
     } catch (e) {
       toast.error(describeError(e));
     }
   });
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-5">
-      {editing && entry ? (
-        <div className="flex items-center gap-3.5 rounded-2xl border bg-card p-4 shadow-sm">
-          <EntryAvatar entry={entry} className="size-11" />
-          <div className="grid min-w-0 flex-1 gap-0.5">
-            <p className="flex items-center gap-2 text-base leading-tight font-semibold">
-              <span className="overflow-hidden text-ellipsis whitespace-nowrap">{entry.title || entry.site}</span>
-              {isSecret(entry) && <Badge variant="secondary">Maxfiy</Badge>}
-            </p>
-            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-muted-foreground">
-              {isSecret(entry) ? "Maxfiy yozuv" : entry.title ? entry.site : entry.username}
-            </p>
+    <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
+      <div className="grid flex-1 content-start gap-4 overflow-y-auto px-5 py-4">
+        {editing && entry ? (
+          <div className="flex items-center gap-3 rounded-xl border bg-card p-3">
+            <EntryAvatar entry={entry} className="size-9" />
+            <div className="grid min-w-0 flex-1">
+              <p className="flex items-center gap-2 text-sm leading-tight font-medium">
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{entry.title || entry.site}</span>
+                {isSecret(entry) && <Badge variant="secondary">Maxfiy</Badge>}
+              </p>
+              <p className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
+                {isSecret(entry) ? "Maxfiy yozuv" : entry.title ? entry.site : entry.username}
+              </p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <KindPicker value={kind} onChange={(v) => form.setValue("kind", v)} />
-      )}
+        ) : (
+          <Segmented
+            fill
+            label="Yozuv turi"
+            value={kind}
+            options={KINDS}
+            onChange={(v) => form.setValue("kind", v)}
+          />
+        )}
 
-      <Section
-        icon={secret ? Lock : Globe}
-        title="Yozuv ma'lumotlari"
-        description={secret ? "Yozuvni keyin topish uchun nom bering." : "Qaysi saytga va qaysi hisobga tegishli."}
-        className="gap-x-5 sm:grid-cols-2"
-      >
         {secret ? (
           <>
             <Field label="Nom" htmlFor="title" error={errors.title?.message}>
-              <Input id="title" placeholder="Wi-Fi, SSH kaliti…" aria-invalid={!!errors.title} {...form.register("title")} />
+              <Input id="title" autoFocus placeholder="Wi-Fi, SSH kaliti…" aria-invalid={!!errors.title} {...form.register("title")} />
             </Field>
             <Field label="Login (ixtiyoriy)" htmlFor="username" error={errors.username?.message}>
               <Input id="username" autoComplete="off" placeholder="foydalanuvchi nomi" {...form.register("username")} />
@@ -200,58 +204,53 @@ export function EntryForm() {
           </>
         ) : (
           <>
-            <div className="sm:col-span-2">
-              <Field
-                label="Sayt"
-                htmlFor="url"
-                error={errors.url?.message}
-                hint={editing ? "Saytni o'zgartirib bo'lmaydi" : undefined}
-              >
-                <Input id="url" placeholder="example.com" disabled={editing} aria-invalid={!!errors.url} {...form.register("url")} />
+            <Field
+              label="Sayt"
+              htmlFor="url"
+              error={errors.url?.message}
+              hint={editing ? "Saytni o'zgartirib bo'lmaydi" : undefined}
+            >
+              <Input id="url" autoFocus={!editing} placeholder="example.com" disabled={editing} aria-invalid={!!errors.url} {...form.register("url")} />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Login" htmlFor="username" error={errors.username?.message}>
+                <Input
+                  id="username"
+                  autoComplete="off"
+                  placeholder="email yoki nom"
+                  aria-invalid={!!errors.username}
+                  {...form.register("username")}
+                />
+              </Field>
+              <Field label="Nom (ixtiyoriy)" htmlFor="title" error={errors.title?.message}>
+                <Input id="title" placeholder="Ish pochtasi" {...form.register("title")} />
               </Field>
             </div>
-            <Field label="Login" htmlFor="username" error={errors.username?.message}>
-              <Input
-                id="username"
-                autoComplete="off"
-                placeholder="email yoki foydalanuvchi nomi"
-                aria-invalid={!!errors.username}
-                {...form.register("username")}
-              />
-            </Field>
-            <Field label="Nom (ixtiyoriy)" htmlFor="title" error={errors.title?.message}>
-              <Input id="title" placeholder="Ish pochtasi" {...form.register("title")} />
-            </Field>
           </>
         )}
-      </Section>
 
-      <PasswordSection form={form} editing={editing} gen={gen} onGen={setGen} />
+        <PasswordSection form={form} editing={editing} gen={gen} onGen={setGen} />
 
-      <Section
-        icon={Layers}
-        title="Qo'shimcha"
-        description="Ixtiyoriy. Hammasi qurilmada shifrlanadi."
-        flush
-      >
-        <NoteField form={form} entry={entry} />
-        <TotpField
-          form={form}
-          installed={totpInstalled}
-          replacing={replacingTotp}
-          onReplace={() => setReplacingTotp(true)}
-          onClearToggle={(checked) => checked && setReplacingTotp(false)}
-        />
-      </Section>
+        <div className="overflow-hidden rounded-xl border">
+          <NoteField form={form} entry={entry} />
+          <TotpField
+            form={form}
+            installed={totpInstalled}
+            replacing={replacingTotp}
+            onReplace={() => setReplacingTotp(true)}
+            onClearToggle={(checked) => checked && setReplacingTotp(false)}
+          />
+        </div>
+      </div>
 
-      <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl border bg-card/90 px-5 py-3 shadow-lg backdrop-blur">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t px-5 py-3">
+        <p className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
           <ShieldCheck className="size-4 shrink-0" aria-hidden />
-          Qurilmada tugma bilan tasdiqlanadi
+          Qurilmada tasdiqlanadi
         </p>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" asChild>
-            <Link to="/vault">Bekor qilish</Link>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Bekor qilish
           </Button>
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="animate-spin" />}
