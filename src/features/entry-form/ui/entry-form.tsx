@@ -15,9 +15,9 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Field } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
+import { Section } from "@/shared/ui/section";
 import { DEFAULT_GENERATOR, generatorError, generatorParams, type GeneratorSettings } from "../model/generator-options";
 import { schema, type Values } from "../model/entry-schema";
-import { FormSection } from "./form-section";
 import { KindPicker } from "./kind-picker";
 import { NoteField } from "./note-field";
 import { PasswordSection } from "./password-section";
@@ -183,7 +183,7 @@ export function EntryForm() {
         <KindPicker value={kind} onChange={(v) => form.setValue("kind", v)} />
       )}
 
-      <FormSection
+      <Section
         icon={secret ? Lock : Globe}
         title="Yozuv ma'lumotlari"
         description={secret ? "Yozuvni keyin topish uchun nom bering." : "Qaysi saytga va qaysi hisobga tegishli."}
@@ -224,11 +224,11 @@ export function EntryForm() {
             </Field>
           </>
         )}
-      </FormSection>
+      </Section>
 
       <PasswordSection form={form} editing={editing} gen={gen} onGen={setGen} />
 
-      <FormSection
+      <Section
         icon={Layers}
         title="Qo'shimcha"
         description="Ixtiyoriy. Hammasi qurilmada shifrlanadi."
@@ -242,7 +242,7 @@ export function EntryForm() {
           onReplace={() => setReplacingTotp(true)}
           onClearToggle={(checked) => checked && setReplacingTotp(false)}
         />
-      </FormSection>
+      </Section>
 
       <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl border bg-card/90 px-5 py-3 shadow-lg backdrop-blur">
         <p className="flex items-center gap-2 text-xs text-muted-foreground">

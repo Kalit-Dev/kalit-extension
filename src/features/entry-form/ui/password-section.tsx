@@ -4,9 +4,9 @@ import { Field } from "@/shared/ui/field";
 import { PasswordInput } from "@/shared/ui/password-input";
 import { PasswordStrengthMeter } from "@/shared/ui/password-strength-meter";
 import { Segmented } from "@/shared/ui/segmented";
+import { Section } from "@/shared/ui/section";
 import type { GeneratorSettings } from "../model/generator-options";
 import type { Values } from "../model/entry-schema";
-import { FormSection } from "./form-section";
 import { GeneratorOptions } from "./generator-options";
 
 const MODES = [
@@ -29,7 +29,7 @@ export function PasswordSection({ form, editing, gen, onGen }: Props) {
   const generating = mode === "generate" && !editing;
 
   return (
-    <FormSection
+    <Section
       icon={KeyRound}
       title="Parol"
       description={
@@ -66,6 +66,6 @@ export function PasswordSection({ form, editing, gen, onGen }: Props) {
           {password && <PasswordStrengthMeter password={password} />}
         </div>
       )}
-    </FormSection>
+    </Section>
   );
 }
