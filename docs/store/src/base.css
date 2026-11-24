@@ -1,0 +1,36 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #0a0a0b; color: #f2f2f0; position: relative; }
+.bg { position: absolute; inset: 0; background: radial-gradient(900px 500px at 85% 10%, #1d1d20 0%, transparent 60%), #0a0a0b; }
+.cap { position: absolute; left: 64px; top: 0; bottom: 0; width: 400px; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
+.cap .k { font-size: 18px; font-weight: 700; letter-spacing: .12em; color: #e8482c; }
+.cap h1 { font-size: 52px; line-height: 1.08; font-weight: 800; letter-spacing: -.02em; }
+.cap p { font-size: 22px; line-height: 1.45; color: #a8a8a3; }
+.win { position: absolute; right: 56px; top: 90px; width: 700px; height: 620px; background: #141415; border: 1px solid #2c2c2f; border-radius: 18px; box-shadow: 0 30px 80px rgba(0,0,0,.6); overflow: hidden; }
+.bar { height: 44px; background: #1b1b1d; border-bottom: 1px solid #2c2c2f; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+.bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a3a3e; display: block; }
+.bar span { margin-left: 12px; font-size: 14px; color: #8c8c88; }
+.body { padding: 36px 44px; display: flex; flex-direction: column; gap: 16px; }
+.logo { width: 52px; height: 52px; border-radius: 14px; background: #1f1f22; border: 1px solid #2c2c2f; display: grid; place-items: center; font-size: 26px; }
+h2 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+.sub { font-size: 17px; line-height: 1.5; color: #9a9a95; }
+.btn { height: 52px; border-radius: 12px; background: #e6e6e3; color: #111; font-size: 17px; font-weight: 600; display: grid; place-items: center; }
+.btn.o { background: #1e1e20; color: #f2f2f0; border: 1px solid #2f2f33; }
+.field { height: 52px; border-radius: 12px; background: #0f0f10; border: 1px solid #2f2f33; padding: 0 16px; display: flex; align-items: center; font-size: 17px; color: #7d7d79; }
+.row { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid #242427; }
+.row:last-child { border-bottom: 0; }
+.av { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: #111; }
+.row b { font-size: 17px; display: block; font-weight: 600; }
+.row small { font-size: 14px; color: #8c8c88; }
+.chip { margin-left: auto; font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 99px; background: #26262a; color: #b8b8b3; }
+.card { background: #101011; border: 1px solid #2c2c2f; border-radius: 14px; overflow: hidden; }
+.code { font-family: ui-monospace, Menlo, monospace; font-size: 48px; letter-spacing: .4em; text-align: center; padding: 18px 0 18px .4em; background: #0f0f10; border: 1px solid #2f2f33; border-radius: 12px; }
+.dev { position: absolute; left: 0; right: 0; }
+.oled { width: 300px; height: 150px; background: #050506; border: 3px solid #333338; border-radius: 10px; padding: 0 0 8px; font-family: ui-monospace, Menlo, monospace; color: #f2f2f0; overflow: hidden; }
+.oled .t { background: #f2f2f0; color: #050506; font-size: 14px; font-weight: 700; padding: 5px 8px; display: flex; justify-content: space-between; }
+.oled .l { font-size: 15px; padding: 10px 10px 0; }
+.oled .f { position: absolute; bottom: 8px; left: 10px; right: 10px; font-size: 11px; display: flex; justify-content: space-between; color: #bbb; }
+.board { position: relative; width: 360px; height: 230px; background: #17171a; border: 2px solid #e8482c; border-radius: 22px; padding: 28px; }
+.board .btnc { position: absolute; right: 26px; bottom: 26px; width: 44px; height: 44px; border-radius: 50%; background: #f2f2f0; border: 8px solid #17171a; box-shadow: 0 0 0 3px #f2f2f0; }
+.red { color: #e8482c; }
+.ok { color: #6fd38b; }

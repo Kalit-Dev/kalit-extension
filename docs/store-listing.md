@@ -28,8 +28,14 @@ Xavfsizlik va maxfiylik
 
 Talablar: Kalit qurilmasi (ESP32), USB kabel, Chrome 116+. Firmware: github.com/Kalit-Dev/kalit-firmware
 
-## Assets checklist
+## English listing (optional second language)
+Name: Kalit — Hardware Password Manager
+Short description (max 132): Your passwords stay on your own device. Every sign-in is confirmed with a button press. (Kalit device required)
+Long description: Kalit keeps your passwords on an ESP32 hardware device instead of in the browser. The extension talks to it over USB (Web Serial) through an encrypted Noise_XX channel. Autofill, saving, deleting, revealing a secret, import and backup each need a physical button press on the device. Encrypted backups are created on the device. No servers, no analytics, no tracking. Requires a Kalit device, a USB cable and Chrome 116+. Firmware: github.com/Kalit-Dev/kalit-firmware
+
+## Assets (all in docs/store/, sources in docs/store/src/)
 - Icon 128x128: public/icons/icon-128.png
-- Screenshots 1280x800 (1-5)
-- Small promo tile 440x280
-- Privacy policy URL, support URL
+- Screenshots 1280x800: screenshot-1-connect.png, -2-confirm, -3-vault, -4-autofill, -5-backup (designed mockups with sample data, not real captures)
+- Small promo tile 440x280: promo-small-440x280.png
+- Marquee 1400x560 (optional): promo-marquee-1400x560.png
+- Still needed: privacy policy URL, support URL
