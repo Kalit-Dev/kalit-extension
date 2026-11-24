@@ -1,9 +1,12 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { computeTotp } from "@/shared/lib/totp";
 import { decode, encode } from "./cbor";
 import { generateKeyPair, NoiseSession, pairingCode, type CipherState, type KeyPair } from "./noise";
-import { CONFIRM_TIMEOUT_MS, type ConfirmInfo, type DeviceState, type EntryMeta, type ErrorCode } from "./protocol";
+import { CONFIRM_TIMEOUT_MS, LIST_PAGE_SIZE, PAIR_VERIFY_TIMEOUT_MS, MAX_ENTRIES, TOTP_PERIOD, TOTP_SEED_MAX, TOTP_SEED_MIN, type ConfirmInfo, type DeviceState, type EntryMeta, type ErrorCode } from "./protocol";
+import { generate, genValid, type GenSpec } from "./device-generator";
+import { isWeakPassword } from "./device-strength";
 import { hostMatchesSite, originHost, siteValid } from "./site-rules";
 import type { RawTransport } from "./transport";
 
@@ -15,15 +18,15 @@ import type { RawTransport } from "./transport";
 
 const MAX_ATTEMPTS = 10;
 const MAX_HOSTS = 4;
-const MAX_ENTRIES = 32;
 /** site+username+title (bayt) yig'indisi: LIST javobi 8 KiB kadrga sig'sin (firmware kMetaBudget bilan bir xil). */
 const META_BUDGET = 160;
 const GUARD_MS = 500;
 const IMPORT_SESSION_MS = 120_000;
 const BACKUP_SESSION_MS = 120_000;
 const BACKUP_ITER = 200_000;
-const FIRMWARE = "mock-0.5.0";
-const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+";
+const FIRMWARE = "mock-1.1.0";
+/** v0.10: AUDIT_PASSWORDS bir javobda eng ko'pi bilan shuncha bayroqli yozuv (firmware kAuditPage). */
+const AUDIT_PAGE = 64;
 
 class Fault extends Error {
   constructor(readonly code: ErrorCode) {
@@ -43,15 +46,17 @@ interface Request {
 const hostFingerprint = (keyHex: string) => bytesToHex(sha256(hexToBytes(keyHex))).slice(0, 16);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function generatePassword(length: number): string {
-  const max = 256 - (256 % CHARSET.length); // modulo bias'siz
-  const out: string[] = [];
-  const buf = new Uint8Array(32);
-  while (out.length < length) {
-    crypto.getRandomValues(buf);
-    for (const b of buf) if (b < max && out.length < length) out.push(CHARSET[b % CHARSET.length]!);
-  }
-  return out.join("");
+/** ADD_ENTRY generator parametrlari (v0.10): `words` charset/generateLength bilan aralashmaydi; standart 20 belgi. */
+function genSpec(p: Params): GenSpec {
+  return {
+    words: p.words === undefined ? undefined : Number(p.words),
+    charset: p.charset === undefined ? undefined : Number(p.charset),
+    length: p.generateLength !== undefined ? Number(p.generateLength) : p.words === undefined ? 20 : undefined,
+  };
+}
+/** Parol berilmagan bo'lsa generator parametrlari yaroqli bo'lishi shart (tasdiqdan oldin, firmware check_add kabi). */
+function checkGenerator(p: Params): void {
+  if (!p.password && !genValid(genSpec(p))) throw new Fault("INVALID_STATE");
 }
 
 const u32 = (n: number) => new Uint8Array([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
@@ -93,6 +98,9 @@ interface Plain {
   username: string;
   title?: string;
   password: string;
+  note?: string;
+  /** v0.9: TOTP urug'i (hex). Zaxira blob'i ichida (shifrlangan) yuradi. */
+  totp?: string;
 }
 /** web: kind+site+username; secret (site bo'sh): kind+username+title. */
 const dupKey = (kind: string, site: string, username: string, title = "") =>
@@ -117,7 +125,9 @@ export class MockTransport implements RawTransport {
   private attempts = MAX_ATTEMPTS;
   private readonly slots: ({ key: string; name: string; seq: number } | null)[] = Array(MAX_HOSTS).fill(null);
   private seq = 0;
-  private readonly vault = new Map<string, { meta: EntryMeta; password: string }>();
+  private readonly vault = new Map<string, { meta: EntryMeta; password: string; note?: string; totp?: Uint8Array }>();
+  /** v0.9: GET_TOTP uchun eng so'nggi `now` — orqaga ketgan vaqt rad etiladi (qurilmada RTC yo'q, host'ga ishonilmaydi). */
+  private lastTotpNow = 0;
 
   // Ulanish holati
   private noise: NoiseSession | null = null;
@@ -143,6 +153,10 @@ export class MockTransport implements RawTransport {
 
   private pending: ((r: ConfirmResult) => void) | null = null;
   private pendingSince = 0;
+  /** v0.11: PAIR_HOST kod tanlovini (PAIR_VERIFY) kutmoqda. Tugma bu bosqichda ishlamaydi. */
+  private verifying: ((r: boolean | "timeout") => void) | null = null;
+  /** PAIR_VERIFY javobi PAIR_HOST natijasi aniq bo'lgach yuboriladi (firmware kabi). */
+  private verifyReply: (() => void) | null = null;
 
   constructor({ fast = false }: MockOptions = {}) {
     this.fast = fast;
@@ -158,6 +172,7 @@ export class MockTransport implements RawTransport {
   async close(): Promise<void> {
     this.endBackupSessions();
     this.importSession = null;
+    this.endVerify();
     this.pending?.("reject");
     this.closeListeners.forEach((l) => l());
   }
@@ -189,8 +204,16 @@ export class MockTransport implements RawTransport {
     this.importSession = null;
     this.noise = null;
     this.cipher = null;
+    this.endVerify();
     this.pending?.("reject");
     this.closeListeners.forEach((l) => l());
+  }
+
+  /** Ulanish yopildi: kutilayotgan verify bekor (PAIR_HOST USER_REJECTED, hech narsa pin qilinmaydi). */
+  private endVerify() {
+    this.verifying?.(false);
+    this.verifyReply?.();
+    this.verifyReply = null;
   }
 
   private emitRaw(frame: Uint8Array, after?: () => void) {
@@ -267,7 +290,9 @@ export class MockTransport implements RawTransport {
 
   private async handle(cmd: string, p: Params): Promise<unknown> {
     const isTrusted = this.hostSlot() >= 0;
-    if (!isTrusted && cmd !== "GET_STATUS" && cmd !== "PAIR_HOST") throw new Fault("NOT_TRUSTED");
+    // v0.11: kod tanlovi kutilayotganda faqat GET_STATUS va PAIR_VERIFY.
+    if (this.verifying && cmd !== "GET_STATUS" && cmd !== "PAIR_VERIFY") throw new Fault("BUSY");
+    if (!isTrusted && cmd !== "GET_STATUS" && cmd !== "PAIR_HOST" && cmd !== "PAIR_VERIFY") throw new Fault("NOT_TRUSTED");
 
     // Eksport sessiyasi snapshot'ni muzlatadi: yozuvlarni o'zgartiruvchi buyruqlar BUSY qaytaradi.
     if (["ADD_ENTRY", "UPDATE_ENTRY", "DELETE_ENTRY", "CHANGE_MASTER"].includes(cmd) && this.activeExport()) throw new Fault("BUSY");
@@ -278,10 +303,35 @@ export class MockTransport implements RawTransport {
 
       case "PAIR_HOST": {
         if (isTrusted) return {};
-        await this.confirm({ action: "pair", code: this.sas });
+        if (this.pending) throw new Fault("BUSY");
+        const match = await this.verifyCode();
+        try {
+          if (!match) {
+            this.emitSecure({ ev: "CONFIRM_DONE" });
+            throw new Fault("USER_REJECTED");
+          }
+          await this.confirm({ action: "pair", code: this.sas });
+        } finally {
+          // PAIR_VERIFY javobi PAIR_HOST javobidan oldin ketadi.
+          const reply = this.verifyReply;
+          this.verifyReply = null;
+          if (reply) {
+            reply();
+            await wait(0);
+          }
+        }
         let slot = this.slots.indexOf(null);
         if (slot < 0) slot = this.slots.reduce((m, h, i) => (h!.seq < this.slots[m]!.seq ? i : m), 0); // eng eskisi chiqariladi
         this.slots[slot] = { key: this.hostKey!, name: this.hostName, seq: this.seq++ };
+        return {};
+      }
+
+      case "PAIR_VERIFY": {
+        // Bir martalik: PAIR_HOST kutmayotgan bo'lsa (yoki allaqachon tanlangan/taymer tugagan) INVALID_STATE.
+        if (!this.verifying) throw new Fault("INVALID_STATE");
+        const replied = new Promise<void>((r) => (this.verifyReply = r));
+        this.verifying(p.match === true);
+        await replied;
         return {};
       }
 
@@ -315,7 +365,11 @@ export class MockTransport implements RawTransport {
 
       case "LIST":
         this.requireUnlocked();
-        return { entries: [...this.vault.values()].map((v) => v.meta) };
+        return this.listPage(p.cursor);
+
+      case "AUDIT_PASSWORDS":
+        this.requireUnlocked();
+        return this.auditPage(p.cursor);
 
       case "GET_CREDENTIAL": {
         this.requireUnlocked();
@@ -340,6 +394,9 @@ export class MockTransport implements RawTransport {
           0,
         );
         if (this.vault.size >= MAX_ENTRIES || metaBytes > META_BUDGET) throw new Fault("INVALID_STATE");
+        checkGenerator(p);
+        const note = this.noteParam(p);
+        const totp = this.totpParam(p);
         const inSession = this.activeSession() !== null;
         if (!inSession) await this.confirm({ action: "save", site, username: String(p.username) });
         const meta: EntryMeta = {
@@ -348,10 +405,12 @@ export class MockTransport implements RawTransport {
           site,
           username: String(p.username),
           title: p.title ? String(p.title) : undefined,
-          updatedAt: Date.now(),
+          updatedAt: this.stamp(p),
+          ...(note ? { hasNote: true } : {}),
+          ...(totp?.length ? { hasTotp: true } : {}),
         };
-        const password = p.password ? String(p.password) : generatePassword(Number(p.generateLength) || 20);
-        this.vault.set(meta.id, { meta, password });
+        const password = p.password ? String(p.password) : generate(genSpec(p));
+        this.vault.set(meta.id, { meta, password, ...(note ? { note } : {}), ...(totp?.length ? { totp } : {}) });
         if (inSession) this.consumeSession();
         return { entry: meta };
       }
@@ -389,7 +448,9 @@ export class MockTransport implements RawTransport {
         this.requireUnlocked();
         const item = this.vault.get(String(p.id));
         if (!item) throw new Fault("NOT_FOUND");
-        if (p.title === undefined && p.username === undefined && p.password === undefined) throw new Fault("INTERNAL");
+        if (p.title === undefined && p.username === undefined && p.password === undefined && p.note === undefined && p.totp === undefined) throw new Fault("INTERNAL");
+        const note = p.note !== undefined ? this.noteParam(p) : undefined;
+        const totp = this.totpParam(p, true);
         const username = p.username !== undefined ? String(p.username) : item.meta.username;
         const title = p.title !== undefined ? String(p.title) : item.meta.title ?? "";
         if (item.meta.kind === "secret" && title === "") throw new Fault("INVALID_STATE");
@@ -398,8 +459,16 @@ export class MockTransport implements RawTransport {
           throw new Fault("INVALID_STATE");
         }
         await this.confirm({ action: "update", site: this.label(item.meta), username });
-        item.meta = { ...item.meta, username, title: title || undefined, updatedAt: Date.now() };
+        item.meta = { ...item.meta, username, title: title || undefined, updatedAt: p.now !== undefined ? this.stamp(p) : item.meta.updatedAt };
         if (p.password !== undefined) item.password = String(p.password);
+        if (note !== undefined) {
+          item.note = note || undefined;
+          item.meta = { ...item.meta, hasNote: note ? true : undefined };
+        }
+        if (totp !== undefined) {
+          item.totp = totp.length ? totp : undefined; // bo'sh = o'chirish
+          item.meta = { ...item.meta, hasTotp: totp.length ? true : undefined };
+        }
         return { entry: item.meta };
       }
 
@@ -410,6 +479,35 @@ export class MockTransport implements RawTransport {
         if (item.meta.kind !== "secret") throw new Fault("INVALID_STATE");
         await this.confirm({ action: "reveal", site: this.label(item.meta), username: item.meta.username });
         return { username: item.meta.username, password: item.password };
+      }
+
+      case "GET_NOTE": {
+        this.requireUnlocked();
+        const item = this.vault.get(String(p.id));
+        if (!item) throw new Fault("NOT_FOUND");
+        if (!item.note) throw new Fault("INVALID_STATE"); // tasdiqsiz
+        await this.confirm({ action: "reveal", site: this.label(item.meta), username: item.meta.username });
+        return { note: item.note };
+      }
+
+      case "GET_TOTP": {
+        this.requireUnlocked();
+        const item = this.vault.get(String(p.id));
+        if (!item) throw new Fault("NOT_FOUND");
+        if (p.origin !== undefined && item.meta.kind === "web") {
+          const host = originHost(String(p.origin));
+          if (!host || !hostMatchesSite(host, item.meta.site)) throw new Fault("ORIGIN_MISMATCH");
+        }
+        if (!item.totp) throw new Fault("INVALID_STATE"); // tasdiqsiz
+        // Qurilmada RTC yo'q: `now` orqaga ketsa yoki yo'q bo'lsa rad etiladi.
+        if (!Number.isInteger(p.now) || p.now <= 0 || p.now < this.lastTotpNow) throw new Fault("INVALID_STATE");
+        const requested = Date.now();
+        const now: number = p.now;
+        await this.confirm({ action: "totp", site: this.label(item.meta), username: item.meta.username });
+        // Tasdiq kutilgan vaqt ham hisobga olinadi (qurilma monotonik soat bilan shuncha qo'shadi).
+        const t = now + Math.floor((Date.now() - requested) / 1000);
+        this.lastTotpNow = Math.max(this.lastTotpNow, t);
+        return { code: computeTotp(item.totp, t), validFor: TOTP_PERIOD - (t % TOTP_PERIOD), period: TOTP_PERIOD };
       }
 
       case "IMPORT_BEGIN": {
@@ -436,12 +534,14 @@ export class MockTransport implements RawTransport {
         await this.confirm({ action: "export", site: `${this.vault.size} ta yozuv` });
         // Tasdiq paytida holat o'zgargan bo'lishi mumkin (LOCK/uzilish): qayta tekshiramiz.
         this.requireUnlocked();
-        const items: Plain[] = [...this.vault.values()].map(({ meta, password }) => ({
+        const items: Plain[] = [...this.vault.values()].map(({ meta, password, note, totp }) => ({
           kind: meta.kind,
           site: meta.site,
           username: meta.username,
           ...(meta.title ? { title: meta.title } : {}),
           password,
+          ...(note ? { note } : {}),
+          ...(totp ? { totp: bytesToHex(totp) } : {}),
         }));
         const salt = sha256(concatBytes(utf8ToBytes("mock-salt"), u32(this.exportCounter++), utf8ToBytes(passphrase))).subarray(0, 16);
         this.exportSession = { key: sealKey(passphrase, salt, BACKUP_ITER), items, deadline: Date.now() + BACKUP_SESSION_MS };
@@ -520,9 +620,16 @@ export class MockTransport implements RawTransport {
             site: item.site,
             username: item.username,
             title: item.title,
-            updatedAt: Date.now(),
+            updatedAt: this.stamp(p),
+            ...(item.note ? { hasNote: true } : {}),
+            ...(item.totp ? { hasTotp: true } : {}),
           };
-          this.vault.set(meta.id, { meta, password: item.password });
+          this.vault.set(meta.id, {
+            meta,
+            password: item.password,
+            ...(item.note ? { note: item.note } : {}),
+            ...(item.totp ? { totp: hexToBytes(item.totp) } : {}),
+          });
           s.added++;
         }
         // Oxirgi yozuvdan keyin qurilma sessiyani o'zi yopadi (RESTORE_END keyin {0,0} qaytaradi).
@@ -560,6 +667,71 @@ export class MockTransport implements RawTransport {
     }
   }
 
+  /** v0.7: LIST sahifasi. Kursor = slot (tartib) indeksi; `next` faqat yana yozuv qolganda. */
+  private listPage(rawCursor: unknown) {
+    const cursor = rawCursor === undefined ? 0 : Number(rawCursor);
+    if (!Number.isInteger(cursor) || cursor < 0) throw new Fault("INTERNAL");
+    const all = [...this.vault.values()].map((v) => v.meta);
+    const entries = all.slice(cursor, cursor + LIST_PAGE_SIZE);
+    const end = cursor + entries.length;
+    return end < all.length ? { entries, next: end } : { entries };
+  }
+
+  /**
+   * v0.10: parol auditi. Takror = parollar bir xil; zaif = device-strength entropiyasi < 60 bit. Faqat id va bayroqlar chiqadi.
+   * Kursor firmware kabi tartib indeksi: bayroqli yozuvlar `cursor`dan boshlab AUDIT_PAGE tadan.
+   */
+  private auditPage(rawCursor: unknown) {
+    const cursor = rawCursor === undefined ? 0 : Number(rawCursor);
+    if (!Number.isInteger(cursor) || cursor < 0) throw new Fault("INTERNAL");
+    const all = [...this.vault.values()];
+    const counts = new Map<string, number>();
+    for (const v of all) counts.set(v.password, (counts.get(v.password) ?? 0) + 1);
+    const flagged = all
+      .map((v, index) => ({ index, id: v.meta.id, duplicate: counts.get(v.password)! > 1, weak: isWeakPassword(v.password) }))
+      .filter((f) => f.duplicate || f.weak);
+    const page = flagged.filter((f) => f.index >= cursor);
+    const items = page.slice(0, AUDIT_PAGE).map(({ id, duplicate, weak }) => ({ id, duplicate, weak }));
+    const rest = page[AUDIT_PAGE];
+    return {
+      total: all.length,
+      duplicates: flagged.filter((f) => f.duplicate).length,
+      weak: flagged.filter((f) => f.weak).length,
+      items,
+      ...(rest ? { next: rest.index } : {}),
+    };
+  }
+
+  /** Test hook (v0.7, firmware 1.1.0): qurilma harakatsizlikdan keyin o'zi qulflanadi va `LOCKED` hodisasini yuboradi. */
+  triggerAutoLock(): void {
+    if (this.state !== "UNLOCKED") return;
+    this.state = "LOCKED";
+    this.importSession = null;
+    this.endBackupSessions();
+    this.emitSecure({ ev: "LOCKED" });
+  }
+
+  /** v0.8: ixtiyoriy `note` (UTF-8 <= 1024 bayt); yo'q = "". Haddan oshsa INVALID_STATE (tasdiqdan oldin). */
+  private noteParam(p: Params): string {
+    if (p.note === undefined) return "";
+    if (typeof p.note !== "string" || new TextEncoder().encode(p.note).length > 1024) throw new Fault("INVALID_STATE");
+    return p.note;
+  }
+
+  /** v0.9: ixtiyoriy `totp` urug'i (10..64 bayt; UPDATE'da bo'sh = o'chirish). Noto'g'ri bo'lsa INVALID_STATE (tasdiqdan oldin). */
+  private totpParam(p: Params, allowEmpty = false): Uint8Array | undefined {
+    if (p.totp === undefined) return undefined;
+    if (!(p.totp instanceof Uint8Array)) throw new Fault("INVALID_STATE");
+    const empty = allowEmpty && p.totp.length === 0;
+    if (!empty && (p.totp.length < TOTP_SEED_MIN || p.totp.length > TOTP_SEED_MAX)) throw new Fault("INVALID_STATE");
+    return p.totp;
+  }
+
+  /** `now` (unix soniya) — klient qo'shadi; yo'q bo'lsa 0 ("noma'lum"). */
+  private stamp(p: Params): number {
+    return Number.isInteger(p.now) && p.now >= 0 ? p.now : 0;
+  }
+
   /** Tasdiq ekranida ko'rsatiladigan nom: secret uchun title. */
   private label(meta: EntryMeta): string {
     return meta.kind === "secret" ? meta.title ?? "" : meta.site;
@@ -570,15 +742,27 @@ export class MockTransport implements RawTransport {
     const username = p.username === undefined ? "" : String(p.username);
     const enc = new TextEncoder();
     if (title.length < 1 || enc.encode(title).length > 64 || username.length > 256) throw new Fault("INVALID_STATE");
-    if (!p.password && !p.generateLength) throw new Fault("INVALID_STATE");
+    if (!p.password && p.generateLength === undefined && p.charset === undefined && p.words === undefined) throw new Fault("INVALID_STATE");
+    checkGenerator(p);
     if (this.vault.size >= MAX_ENTRIES || enc.encode(title).length + enc.encode(username).length > META_BUDGET) {
       throw new Fault("INVALID_STATE");
     }
+    const note = this.noteParam(p);
+    const totp = this.totpParam(p);
     const inSession = this.activeSession() !== null;
     if (!inSession) await this.confirm({ action: "save", site: title, username });
-    const meta: EntryMeta = { id: crypto.randomUUID(), kind: "secret", site: "", username, title, updatedAt: Date.now() };
-    const password = p.password ? String(p.password) : generatePassword(Number(p.generateLength));
-    this.vault.set(meta.id, { meta, password });
+    const meta: EntryMeta = {
+      id: crypto.randomUUID(),
+      kind: "secret",
+      site: "",
+      username,
+      title,
+      updatedAt: this.stamp(p),
+      ...(note ? { hasNote: true } : {}),
+      ...(totp?.length ? { hasTotp: true } : {}),
+    };
+    const password = p.password ? String(p.password) : generate(genSpec(p));
+    this.vault.set(meta.id, { meta, password, ...(note ? { note } : {}), ...(totp?.length ? { totp } : {}) });
     if (inSession) this.consumeSession();
     return { entry: meta };
   }
@@ -616,7 +800,19 @@ export class MockTransport implements RawTransport {
       ) {
         return null;
       }
-      return { kind: o.kind, site: o.site, username: o.username, password: o.password, ...(title ? { title } : {}) };
+      if (o.note !== undefined && (typeof o.note !== "string" || enc.encode(o.note).length > 1024)) return null;
+      if (o.totp !== undefined) {
+        if (typeof o.totp !== "string" || !/^([0-9a-f]{2}){10,64}$/.test(o.totp)) return null;
+      }
+      return {
+        kind: o.kind,
+        site: o.site,
+        username: o.username,
+        password: o.password,
+        ...(title ? { title } : {}),
+        ...(o.note ? { note: o.note } : {}),
+        ...(o.totp ? { totp: o.totp } : {}),
+      };
     } catch {
       return null;
     }
@@ -648,6 +844,21 @@ export class MockTransport implements RawTransport {
         this.emitSecure({ ev: "CONFIRM_DONE" });
         if (result === "accept") resolve();
         else reject(new Fault(result === "timeout" ? "TIMEOUT" : "USER_REJECTED"));
+      };
+    });
+  }
+
+  /** v0.11: SAS solishtirish bosqichi (tugma o'chiq). true = mos, false = rad; taymer -> TIMEOUT. */
+  private verifyCode(): Promise<boolean> {
+    this.emitSecure({ ev: "CONFIRM_PENDING", d: { action: "pair", code: this.sas, phase: "verify", timeoutMs: PAIR_VERIFY_TIMEOUT_MS } });
+    return new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => this.verifying?.("timeout"), PAIR_VERIFY_TIMEOUT_MS);
+      this.verifying = (r) => {
+        clearTimeout(timer);
+        this.verifying = null;
+        if (r !== "timeout") return resolve(r);
+        this.emitSecure({ ev: "CONFIRM_DONE" });
+        reject(new Fault("TIMEOUT"));
       };
     });
   }

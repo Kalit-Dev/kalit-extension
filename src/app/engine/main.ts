@@ -1,11 +1,10 @@
 import { DeviceError } from "@/shared/api/device/client";
 import { errorCode } from "@/shared/lib/errors";
-import { kvGet, kvSet } from "@/shared/lib/kv";
+import { kvGet } from "@/shared/lib/kv";
 import { useDevice } from "./device-store";
 import { startHub } from "./hub";
 import {
   isEngineRequest,
-  PORT_GRANTED,
   STATE_EVENT,
   type EngineReply,
   type EngineRequest,
@@ -46,6 +45,9 @@ async function run({ op, args }: EngineRequest): Promise<unknown> {
     lockIfUnlocked: () => (s.phase === "unlocked" ? s.lock() : undefined),
     getCredential: s.getCredential,
     revealSecret: s.revealSecret,
+    getNote: s.getNote,
+    getTotp: s.getTotp,
+    auditPasswords: s.auditPasswords,
     addEntry: s.addEntry,
     deleteEntry: s.deleteEntry,
     importBegin: s.importBegin,
@@ -69,7 +71,7 @@ const MANAGER_URL = chrome.runtime.getURL("manager.html");
 
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
   // Faqat extension'ning tab'siz sahifalari (popup, background) va manager.html tab'i.
-  // Content script / overlay / grant tab'lari rad etiladi (ularning sender.url'i boshqa).
+  // Content script / overlay tab'lari rad etiladi (ularning sender.url'i boshqa).
   if (sender.id !== chrome.runtime.id || !isEngineRequest(raw)) return;
   if (sender.tab && !(sender.url === MANAGER_URL || sender.url?.startsWith(MANAGER_URL + "#"))) return;
   run(raw).then(
@@ -82,13 +84,6 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
     }),
   ).then(sendResponse);
   return true; // async javob
-});
-
-// grant.html ruxsat olgach: avto-ulanishni yoqamiz va ulanamiz.
-const GRANT_URL = chrome.runtime.getURL("grant.html");
-chrome.runtime.onMessage.addListener((raw: { type?: string }, sender) => {
-  if (sender.id !== chrome.runtime.id || raw?.type !== PORT_GRANTED || !sender.url?.startsWith(GRANT_URL)) return;
-  void kvSet("autoConnect", true).then(autoConnect);
 });
 
 startHub();

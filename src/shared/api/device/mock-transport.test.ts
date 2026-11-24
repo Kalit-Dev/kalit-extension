@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeviceClient, DeviceError } from "./client";
 import { generateKeyPair, type KeyPair } from "./noise";
 import { MockTransport } from "./mock-transport";
+import { computeTotp, parseTotpInput } from "@/shared/lib/totp";
 import { SecureTransport } from "./secure-transport";
 
 function connect(mock: MockTransport, identity: KeyPair = generateKeyPair(), pinned: { key: Uint8Array | null } = { key: null }) {
@@ -78,9 +79,9 @@ describe("MockTransport behind Noise", () => {
     expect(await code(client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: longUser }))).toBe("INVALID_STATE");
   });
 
-  it("refuses the 33rd entry with INVALID_STATE", async () => {
+  it("refuses the 257th entry with INVALID_STATE", async () => {
     const { client } = await ready();
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < 256; i++) {
       await client.call("ADD_ENTRY", { origin: `https://s${i}.example.com`, site: `s${i}.example.com`, username: "u" });
     }
     expect(await code(client.call("ADD_ENTRY", { origin: "https://x.example.com", site: "x.example.com", username: "u" }))).toBe("INVALID_STATE");
@@ -298,12 +299,12 @@ describe("MockTransport behind Noise", () => {
       ]);
     });
 
-    it("CHANGE_MASTER keeps kind; capacity of 32 is shared between kinds", async () => {
+    it("CHANGE_MASTER keeps kind; capacity of 256 is shared between kinds", async () => {
       const { client } = await ready();
       const { entry } = await addSecret(client);
       await client.call("CHANGE_MASTER", { oldPassword: "correct horse battery", newPassword: "another long passphrase" });
       expect((await client.call("LIST", {})).entries[0]).toMatchObject({ id: entry.id, kind: "secret" });
-      for (let i = 0; i < 31; i++) await addSecret(client, { title: `s${i}` });
+      for (let i = 0; i < 255; i++) await addSecret(client, { title: `s${i}` });
       expect(await code(addSecret(client, { title: "overflow" }))).toBe("INVALID_STATE");
       expect(await code(addWeb(client))).toBe("INVALID_STATE");
     });
@@ -438,7 +439,7 @@ describe("protocol v0.5 import session", () => {
     await client.call("IMPORT_BEGIN", { count: 2 });
     expect(await code(client.call("IMPORT_BEGIN", { count: 1 }))).toBe("INVALID_STATE");
     await client.call("IMPORT_END", {});
-    for (let i = 0; i < 30; i++) await client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
+    for (let i = 0; i < 254; i++) await client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
     expect(await code(client.call("IMPORT_BEGIN", { count: 3 }))).toBe("INVALID_STATE");
     await client.call("IMPORT_BEGIN", { count: 2 });
     await client.call("LOCK", {});
@@ -595,7 +596,7 @@ describe("protocol v0.6 encrypted backup (mock)", () => {
 
     // Full vault: the next new entry cannot fit.
     const full = await fresh();
-    for (let i = 0; i < 32; i++) await full.client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
+    for (let i = 0; i < 256; i++) await full.client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
     await restoreBegin(full.client, b);
     expect(await code(full.client.call("RESTORE_ENTRY", { index: 0, blob: b.blobs[0]! }))).toBe("INVALID_STATE");
     await full.client.call("RESTORE_END", {});
@@ -663,7 +664,7 @@ describe("protocol v0.6 encrypted backup (mock)", () => {
     await expect(restoreBegin(client, { ...begin, iter: 99_999 })).rejects.toThrow();
     await expect(restoreBegin(client, { ...begin, iter: 1_000_001 })).rejects.toThrow();
     await expect(restoreBegin(client, { ...begin, count: 0 })).rejects.toThrow();
-    await expect(restoreBegin(client, { ...begin, count: 33 })).rejects.toThrow();
+    await expect(restoreBegin(client, { ...begin, count: 257 })).rejects.toThrow();
     await expect(restoreBegin(client, { ...begin, salt: new Uint8Array(15) })).rejects.toThrow();
     await expect(restoreBegin(client, begin, "short")).rejects.toThrow();
     await client.call("LOCK", {});
@@ -751,5 +752,368 @@ describe("protocol v0.6 encrypted backup (mock)", () => {
     expect((await client.call("LIST", {})).entries).toHaveLength(1);
     await client.call("EXPORT_END", {});
     expect(await code(addWebN(client, 2))).toBeNull();
+  });
+});
+
+describe("protocol v0.7: paginated LIST, updatedAt, auto-lock", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const addN = (client: DeviceClient, n: number) =>
+    client.call("ADD_ENTRY", { origin: `https://s${n}.example.com`, site: `s${n}.example.com`, username: "u", password: "pw" });
+
+  it("pages 16 entries at a time with `next` = slot index; listAll joins them", async () => {
+    const { client } = await ready();
+    for (let i = 0; i < 40; i++) await addN(client, i);
+    const p1 = await client.call("LIST", {});
+    expect(p1.entries).toHaveLength(16);
+    expect(p1.next).toBe(16);
+    const p2 = await client.call("LIST", { cursor: 16 });
+    expect(p2.entries).toHaveLength(16);
+    expect(p2.next).toBe(32);
+    const p3 = await client.call("LIST", { cursor: 32 });
+    expect(p3.entries).toHaveLength(8);
+    expect(p3.next).toBeUndefined();
+    expect((await client.call("LIST", { cursor: 999 })).entries).toEqual([]);
+    const all = await client.listAll();
+    expect(all.map((e) => e.site)).toEqual(Array.from({ length: 40 }, (_, i) => `s${i}.example.com`));
+  });
+
+  it("exactly 16 entries fit one page without `next`; 256 entries need 16 pages", async () => {
+    const { client } = await ready();
+    for (let i = 0; i < 16; i++) await addN(client, i);
+    expect((await client.call("LIST", {})).next).toBeUndefined();
+    for (let i = 16; i < 256; i++) await client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
+    expect(await client.listAll()).toHaveLength(256);
+    expect(await code(client.call("LIST", { cursor: -1 }))).not.toBeNull();
+  });
+
+  it("stamps updatedAt (unix seconds) on ADD, UPDATE and RESTORE", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.900Z"));
+    const t0 = Math.floor(Date.now() / 1000);
+    const { client } = await ready();
+    const { entry } = await addN(client, 1);
+    expect(entry.updatedAt).toBe(t0);
+    vi.setSystemTime(Date.now() + 5_000);
+    const { entry: updated } = await client.call("UPDATE_ENTRY", { id: entry.id, password: "new" });
+    expect(updated.updatedAt).toBe(t0 + 5);
+
+    const { salt, iter } = await client.call("EXPORT_BEGIN", { passphrase: "backup passphrase 1" });
+    const { blob } = await client.call("EXPORT_GET", { index: 0 });
+    await client.call("EXPORT_END", {});
+    const dst = await ready();
+    vi.setSystemTime(Date.now() + 10_000);
+    await dst.client.call("RESTORE_BEGIN", { passphrase: "backup passphrase 1", salt, iter, count: 1 });
+    await dst.client.call("RESTORE_ENTRY", { index: 0, blob });
+    expect((await dst.client.listAll())[0]!.updatedAt).toBe(t0 + 15);
+  });
+
+  it("`now` is optional on the wire: the schema accepts requests without it", async () => {
+    const { Commands } = await import("./protocol");
+    expect(Commands.UPDATE_ENTRY.params.safeParse({ id: "x", password: "p" }).success).toBe(true);
+    expect(Commands.UPDATE_ENTRY.params.safeParse({ id: "x", password: "p", now: 1.5 }).success).toBe(false);
+  });
+
+  it("triggerAutoLock emits LOCKED, closes sessions and makes vault commands fail with LOCKED", async () => {
+    const { client, mock } = await ready();
+    const events: string[] = [];
+    client.onEvent((e) => events.push(e.event));
+    await addN(client, 1);
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    mock.triggerAutoLock();
+    await vi.waitFor(() => expect(events).toContain("LOCKED"));
+    expect(await code(client.listAll())).toBe("LOCKED");
+    expect((await client.call("GET_STATUS", {})).state).toBe("LOCKED");
+    await client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    expect(await code(client.call("IMPORT_END", {}))).toBeNull();
+    mock.triggerAutoLock(); // no-op when already locked is safe
+  });
+});
+
+describe("protocol v0.8 secure note", () => {
+  it("stores the note, flags hasNote in LIST, and returns text only via GET_NOTE with a confirmation", async () => {
+    const { client } = await ready();
+    const events: string[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && events.push(e.data.action));
+    const { entry } = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw", note: "kod: 1234" });
+    const plain = await client.call("ADD_ENTRY", { origin: "https://b.example.com", site: "b.example.com", username: "ali", password: "pw" });
+    expect(entry.hasNote).toBe(true);
+    expect(plain.entry.hasNote).toBeUndefined();
+    const { entries } = await client.call("LIST", {});
+    expect(entries.map((e) => !!e.hasNote)).toEqual([true, false]);
+    expect(JSON.stringify(entries)).not.toContain("kod: 1234");
+    events.length = 0;
+    expect(await client.call("GET_NOTE", { id: entry.id })).toEqual({ note: "kod: 1234" });
+    expect(events).toEqual(["reveal"]);
+    events.length = 0;
+    expect(await code(client.call("GET_NOTE", { id: plain.entry.id }))).toBe("INVALID_STATE");
+    expect(await code(client.call("GET_NOTE", { id: "nope" }))).toBe("NOT_FOUND");
+    expect(events).toEqual([]); // eslatmasiz/yo'q yozuvda tasdiq so'ralmaydi
+  });
+
+  it("works for secret entries and never leaks through GET_CREDENTIAL / REVEAL_SECRET", async () => {
+    const { client } = await ready();
+    const { entry } = await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "home", password: "pw", note: "router: 192.168.0.1" });
+    expect(entry.hasNote).toBe(true);
+    expect(await client.call("REVEAL_SECRET", { id: entry.id })).toEqual({ username: "home", password: "pw" });
+    expect((await client.call("GET_NOTE", { id: entry.id })).note).toBe("router: 192.168.0.1");
+  });
+
+  it("updates and clears the note; a note-only UPDATE_ENTRY is valid; password updates keep it", async () => {
+    const { client } = await ready();
+    const { entry } = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" });
+    expect((await client.call("UPDATE_ENTRY", { id: entry.id, note: "bir" })).entry.hasNote).toBe(true);
+    await client.call("UPDATE_ENTRY", { id: entry.id, password: "pw2" });
+    expect((await client.call("GET_NOTE", { id: entry.id })).note).toBe("bir");
+    expect((await client.call("UPDATE_ENTRY", { id: entry.id, note: "" })).entry.hasNote).toBeUndefined();
+    expect(await code(client.call("GET_NOTE", { id: entry.id }))).toBe("INVALID_STATE");
+  });
+
+  it("limits the note to 1024 UTF-8 bytes (client validation and device INVALID_STATE)", async () => {
+    const { client } = await ready();
+    const base = { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" };
+    expect((await client.call("ADD_ENTRY", { ...base, note: "n".repeat(1024) })).entry.hasNote).toBe(true);
+    // "ў" = 2 bayt: 513 ta = 1026 bayt
+    await expect(client.call("ADD_ENTRY", { ...base, site: "b.example.com", origin: "https://b.example.com", note: "ў".repeat(513) })).rejects.toThrow();
+    expect((await client.call("ADD_ENTRY", { ...base, site: "c.example.com", origin: "https://c.example.com", note: "ў".repeat(512) })).entry.hasNote).toBe(true);
+  });
+
+  it("survives encrypted export -> restore on a fresh device", async () => {
+    const a = await ready();
+    const { entry } = await a.client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw", note: "zaxira eslatmasi" });
+    const begin = await a.client.call("EXPORT_BEGIN", { passphrase: "backup passphrase 1" });
+    const blobs = [];
+    for (let i = 0; i < begin.count; i++) blobs.push((await a.client.call("EXPORT_GET", { index: i })).blob);
+    await a.client.call("EXPORT_END", {});
+    const b = await ready();
+    await b.client.call("RESTORE_BEGIN", { passphrase: "backup passphrase 1", salt: begin.salt, iter: begin.iter, count: begin.count });
+    for (let i = 0; i < blobs.length; i++) await b.client.call("RESTORE_ENTRY", { index: i, blob: blobs[i]! });
+    const { entries } = await b.client.call("LIST", {});
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.hasNote).toBe(true);
+    expect((await b.client.call("GET_NOTE", { id: entries[0]!.id })).note).toBe("zaxira eslatmasi");
+    expect(entry.id).not.toBe(entries[0]!.id);
+  });
+});
+
+describe("protocol v0.9 TOTP (mock)", () => {
+  const SEED = new TextEncoder().encode("12345678901234567890");
+  const web = { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" };
+
+  it("computes the RFC 6238 code on the device after a confirmation, hasTotp in meta, seed never listed", async () => {
+    const { client } = await ready();
+    const events: string[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && events.push(e.data.action));
+    const { entry } = await client.call("ADD_ENTRY", { ...web, totp: SEED });
+    expect(entry.hasTotp).toBe(true);
+    const { entries } = await client.call("LIST", {});
+    expect(entries[0]!.hasTotp).toBe(true);
+    expect(JSON.stringify(entries)).not.toContain("1234567890");
+    events.length = 0;
+    const t0 = Math.floor(Date.now() / 1000);
+    const res = await client.getTotp(entry.id, "https://mail.example.com");
+    expect(events).toEqual(["totp"]);
+    expect(res.period).toBe(30);
+    expect(res.validFor).toBeGreaterThanOrEqual(1);
+    expect(res.validFor).toBeLessThanOrEqual(30);
+    expect([computeTotp(SEED, t0), computeTotp(SEED, t0 + 1)]).toContain(res.code);
+  });
+
+  it("INVALID_STATE without a seed (no confirm), NOT_FOUND, ORIGIN_MISMATCH, LOCKED", async () => {
+    const { client } = await ready();
+    const events: string[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && events.push(e.data.action));
+    const plain = await client.call("ADD_ENTRY", web);
+    const withSeed = await client.call("ADD_ENTRY", { ...web, site: "b.com", origin: "https://b.com", totp: SEED });
+    events.length = 0;
+    expect(await code(client.getTotp(plain.entry.id))).toBe("INVALID_STATE");
+    expect(await code(client.getTotp("nope"))).toBe("NOT_FOUND");
+    expect(await code(client.getTotp(withSeed.entry.id, "https://evil.com"))).toBe("ORIGIN_MISMATCH");
+    expect(await code(client.getTotp(withSeed.entry.id, "https://notb.com"))).toBe("ORIGIN_MISMATCH");
+    expect(events).toEqual([]);
+    await client.call("LOCK", {});
+    expect(await code(client.getTotp(withSeed.entry.id))).toBe("LOCKED");
+  });
+
+  it("USER_REJECTED when the button is long-pressed", async () => {
+    const mock = new MockTransport({ fast: true });
+    const transport = new SecureTransport(mock, generateKeyPair(), {
+      pinnedDeviceKey: async () => null,
+      pinDeviceKey: async () => undefined,
+      hostName: "Test Host",
+      handshakeTimeoutMs: 500,
+    });
+    const client = new DeviceClient(transport);
+    let press: "short" | "long" = "short";
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(press)));
+    await transport.open();
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    const { entry } = await client.call("ADD_ENTRY", { ...web, totp: SEED });
+    press = "long";
+    expect(await code(client.getTotp(entry.id))).toBe("USER_REJECTED");
+  });
+
+  it("INVALID_STATE when `now` goes backwards (client stamps Date.now())", async () => {
+    const { client } = await ready();
+    const { entry } = await client.call("ADD_ENTRY", { ...web, totp: SEED });
+    const spy = vi.spyOn(Date, "now");
+    try {
+      spy.mockReturnValue(2_000_000_000_000);
+      await client.getTotp(entry.id);
+      spy.mockReturnValue(1_999_999_000_000);
+      expect(await code(client.getTotp(entry.id))).toBe("INVALID_STATE");
+      spy.mockReturnValue(2_000_000_100_000);
+      expect((await client.getTotp(entry.id)).code).toMatch(/^\d{6}$/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("update sets, replaces and removes (empty bytes); a totp-only UPDATE is valid", async () => {
+    const { client } = await ready();
+    const { entry } = await client.call("ADD_ENTRY", web);
+    expect((await client.call("UPDATE_ENTRY", { id: entry.id, totp: SEED })).entry.hasTotp).toBe(true);
+    const other = parseTotpInput("JBSWY3DPEHPK3PXP");
+    await client.call("UPDATE_ENTRY", { id: entry.id, totp: other });
+    const t = Math.floor(Date.now() / 1000);
+    const got = await client.getTotp(entry.id);
+    expect([computeTotp(other, t), computeTotp(other, t + 1)]).toContain(got.code);
+    await client.call("UPDATE_ENTRY", { id: entry.id, password: "pw2" }); // parol yangilanishi TOTP'ni saqlaydi
+    expect((await client.call("LIST", {})).entries[0]!.hasTotp).toBe(true);
+    expect((await client.call("UPDATE_ENTRY", { id: entry.id, totp: new Uint8Array(0) })).entry.hasTotp).toBeUndefined();
+    expect(await code(client.getTotp(entry.id))).toBe("INVALID_STATE");
+  });
+
+  it("works for secret entries (origin ignored) and survives export -> restore", async () => {
+    const a = await ready();
+    const { entry } = await a.client.call("ADD_ENTRY", { kind: "secret", title: "VPN", password: "pw", totp: SEED });
+    expect(entry.hasTotp).toBe(true);
+    expect((await a.client.getTotp(entry.id)).code).toMatch(/^\d{6}$/);
+    const begin = await a.client.call("EXPORT_BEGIN", { passphrase: "backup passphrase 1" });
+    const blob = (await a.client.call("EXPORT_GET", { index: 0 })).blob;
+    await a.client.call("EXPORT_END", {});
+    const b = await ready();
+    await b.client.call("RESTORE_BEGIN", { passphrase: "backup passphrase 1", salt: begin.salt, iter: begin.iter, count: 1 });
+    await b.client.call("RESTORE_ENTRY", { index: 0, blob });
+    const [restored] = (await b.client.call("LIST", {})).entries;
+    expect(restored!.hasTotp).toBe(true);
+    const t = Math.floor(Date.now() / 1000);
+    expect([computeTotp(SEED, t), computeTotp(SEED, t + 1)]).toContain((await b.client.getTotp(restored!.id)).code);
+  });
+
+  it("rejects out-of-range seeds on the wire (client schema)", async () => {
+    const { client } = await ready();
+    await expect(client.call("ADD_ENTRY", { ...web, totp: new Uint8Array(9) })).rejects.toThrow();
+    await expect(client.call("ADD_ENTRY", { ...web, totp: new Uint8Array(65) })).rejects.toThrow();
+  });
+});
+
+describe("v0.11 pairing code verify (PAIR_VERIFY)", () => {
+  const trusted = async (client: DeviceClient) => (await client.call("GET_STATUS", {})).hostTrusted;
+  const fresh = async () => {
+    const mock = new MockTransport({ fast: true });
+    const c = connect(mock);
+    await c.transport.open();
+    return { mock, ...c };
+  };
+
+  afterEach(() => vi.useRealTimers());
+
+  it("pair: matching choice pins the host", async () => {
+    const { client } = await fresh();
+    await client.pair(() => true);
+    expect(await trusted(client)).toBe(true);
+  });
+
+  it("pair: choose receives the device code", async () => {
+    const { client, transport } = await fresh();
+    const seen: { action: string; code: string; phase?: string; timeoutMs: number }[] = [];
+    await client.pair((info) => (seen.push(info), true));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ action: "pair", phase: "verify", timeoutMs: 30_000 });
+    expect(seen[0]!.code).toBe(transport.pairingCode);
+  });
+
+  it("pair: wrong choice rejects with USER_REJECTED and host stays untrusted", async () => {
+    const { client } = await fresh();
+    expect(await code(client.pair(() => false))).toBe("USER_REJECTED");
+    expect(await trusted(client)).toBe(false);
+  });
+
+  it("pair: choose throwing/returning false never pins", async () => {
+    const { client } = await fresh();
+    expect(await code(client.pair(() => {
+      throw new Error("ui closed");
+    }))).toBe("USER_REJECTED");
+    expect(await code(client.pair(async () => Promise.reject(new Error("x"))))).toBe("USER_REJECTED");
+    expect(await code(client.pair(async () => false))).toBe("USER_REJECTED");
+    expect(await trusted(client)).toBe(false);
+  });
+
+  it("PAIR_VERIFY without pending PAIR_HOST → INVALID_STATE", async () => {
+    const { client } = await fresh();
+    expect(await code(client.call("PAIR_VERIFY", { match: true }))).toBe("INVALID_STATE");
+    expect(await trusted(client)).toBe(false);
+  });
+
+  it("second PAIR_VERIFY → INVALID_STATE", async () => {
+    const { client } = await fresh();
+    let second: Promise<string | null> | null = null;
+    await client.pair(() => {
+      // Birinchi PAIR_VERIFY'dan keyin yuborilsin (bir xil tartibdagi kanal).
+      queueMicrotask(() => (second = code(client.call("PAIR_VERIFY", { match: false }))));
+      return true;
+    });
+    expect(await second).toBe("INVALID_STATE");
+    expect(await trusted(client)).toBe(true);
+  });
+
+  it("LIST during verify → BUSY", async () => {
+    const { client } = await fresh();
+    let during: string | null = null;
+    let status: boolean | null = null;
+    await client.pair(async () => {
+      during = await code(client.call("LIST", {}));
+      status = await trusted(client);
+      return true;
+    });
+    expect(during).toBe("BUSY");
+    expect(status).toBe(false);
+    expect(await trusted(client)).toBe(true);
+  });
+
+  it("verify timeout → TIMEOUT and no pin", async () => {
+    const { client } = await fresh();
+    vi.useFakeTimers();
+    const p = code(client.pair(() => new Promise<boolean>(() => {})));
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(await p).toBe("TIMEOUT");
+    vi.useRealTimers();
+    expect(await trusted(client)).toBe(false);
+    expect(await code(client.call("PAIR_VERIFY", { match: true }))).toBe("INVALID_STATE");
+  });
+
+  it("closing the connection clears a pending verify", async () => {
+    const mock = new MockTransport({ fast: true });
+    const identity = generateKeyPair();
+    const first = connect(mock, identity);
+    await first.transport.open();
+    const p = code(first.client.pair(() => new Promise<boolean>(() => {})));
+    await new Promise((r) => setTimeout(r, 5));
+    await mock.close();
+    expect(await p).not.toBeNull();
+    const second = connect(mock, identity);
+    await second.transport.open();
+    await second.client.pair(() => true);
+    expect(await trusted(second.client)).toBe(true);
+  });
+
+  it("PAIR_HOST for an already trusted host returns without a verify step", async () => {
+    const { client } = await fresh();
+    await client.pair(() => true);
+    const choose = vi.fn(() => true);
+    await client.pair(choose);
+    expect(choose).not.toHaveBeenCalled();
   });
 });

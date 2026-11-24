@@ -28,7 +28,7 @@ function Root() {
 
   return (
     <div ref={ref} className="p-2">
-      {view === "save" ? <SavePrompt /> : <InlineMenu />}
+      {view === "save" ? <SavePrompt /> : <InlineMenu otp={view === "otp"} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { DeviceError, type ClientErrorCode } from "@/shared/api/device/client";
 import { runExport, runRestore, type BackupFile, type BackupProgress } from "@/shared/api/device/backup";
-import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/shared/api/device/protocol";
+import type { AddSecretEntryParams, AddWebEntryParams, AuditReport, Credential, EntryMeta, HostInfo, Status, TotpCode } from "@/shared/api/device/protocol";
 import type { TransportKind } from "@/shared/api/device/transport";
 import {
   STATE_EVENT,
@@ -29,8 +29,14 @@ interface DeviceStore extends EngineSnapshot {
   unlock(masterPassword: string): Promise<void>;
   lock(): Promise<void>;
   getCredential(id: string, origin: string): Promise<Credential>;
-  addEntry(params: Omit<AddWebEntryParams, "site"> | AddSecretEntryParams): Promise<EntryMeta>;
+  /** `totp` — base64 urug' (JSON chegarasidan o'tishi uchun). */
+  addEntry(params: (Omit<AddWebEntryParams, "site" | "totp"> | Omit<AddSecretEntryParams, "totp">) & { totp?: string }): Promise<EntryMeta>;
   revealSecret(id: string): Promise<{ username: string; password: string }>;
+  /** v0.8: maxfiy eslatma matni (qurilmada tugma bilan tasdiqlanadi). */
+  getNote(id: string): Promise<string>;
+  /** v0.9: TOTP kodi (qurilmada tugma bilan tasdiqlanadi). Natijani saqlamang: muddati tugagach tozalang. */
+  getTotp(id: string, origin?: string): Promise<TotpCode>;
+  auditPasswords(): Promise<AuditReport>;
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
   importBegin(count: number): Promise<void>;
@@ -43,7 +49,8 @@ interface DeviceStore extends EngineSnapshot {
     onProgress?: (p: BackupProgress) => void,
   ): Promise<{ added: number; skipped: number }>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
-  updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
+  /** `totp`: base64 urug'; "" = o'chirish. */
+  updateEntry(id: string, patch: { title?: string; username?: string; password?: string; note?: string; totp?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
   revokeHost(slot: number): Promise<void>;
 }
@@ -108,6 +115,9 @@ export const useDevice = create<DeviceStore>()((set) => {
     lock: () => call("lock"),
     getCredential: (id, origin) => call<Credential>("getCredential", id, origin),
     revealSecret: (id) => call<{ username: string; password: string }>("revealSecret", id),
+    getNote: (id) => call<string>("getNote", id),
+    getTotp: (id, origin) => call<TotpCode>("getTotp", id, origin),
+    auditPasswords: () => call<AuditReport>("auditPasswords"),
     addEntry: (params) => call<EntryMeta>("addEntry", params),
     forgetDevice: () => call("forgetDevice"),
     deleteEntry: (id) => call("deleteEntry", id),

@@ -65,7 +65,7 @@ describe("backup file parsing", () => {
       { salt: "!!!!" },
       { count: 3 }, // != records.length
       { count: 0, records: [] },
-      { count: 33, records: Array(33).fill(bytesToBase64(new Uint8Array(30))) },
+      { count: 257, records: Array(257).fill(bytesToBase64(new Uint8Array(30))) },
       { records: ["@@@@", bytesToBase64(new Uint8Array(30))] },
       { records: ["abc", bytesToBase64(new Uint8Array(30))] }, // length not multiple of 4
       { records: ["", bytesToBase64(new Uint8Array(30))] },
@@ -142,7 +142,7 @@ describe("runExport", () => {
   });
 
   it("rejects an implausible device count", async () => {
-    const { api } = fakeApi({ exportBegin: async () => ({ count: 99, salt: SALT, iter: 200_000 }) });
+    const { api } = fakeApi({ exportBegin: async () => ({ count: 999, salt: SALT, iter: 200_000 }) });
     await expect(runExport(api, PASS)).rejects.toMatchObject({ code: "PROTOCOL" });
   });
 });

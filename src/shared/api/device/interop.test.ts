@@ -89,10 +89,10 @@ const code = async (p: Promise<unknown>) => {
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "1.0.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "1.2.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "1.0.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "1.2.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
     await client.call("PAIR_HOST", {});
@@ -179,6 +179,31 @@ describe.skipIf(!available)("interop with native firmware", () => {
     expect((await client.call("LIST", {})).entries).toHaveLength(1);
   }, 30_000);
 
+  it("v0.8 secure note: add, hasNote in LIST, GET_NOTE needs button, update/clear, limits", async () => {
+    const { client } = await start("accept");
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    const note = "tiklash kodlari:\n1111-2222\n3333-4444 — o'zbekcha ✓";
+    const { entry } = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw", note });
+    expect(entry.hasNote).toBe(true);
+    const plain = await client.call("ADD_ENTRY", { origin: "https://b.example.com", site: "b.example.com", username: "ali", password: "pw" });
+    expect(plain.entry.hasNote).toBeUndefined();
+    const listed = (await client.call("LIST", {})).entries;
+    expect(listed.find((e) => e.id === entry.id)?.hasNote).toBe(true);
+    expect(JSON.stringify(listed)).not.toContain("1111-2222");
+    expect(await client.call("GET_NOTE", { id: entry.id })).toEqual({ note });
+    expect(await code(client.call("GET_NOTE", { id: plain.entry.id }))).toBe("INVALID_STATE");
+    expect(await code(client.call("GET_NOTE", { id: "nope" }))).toBe("NOT_FOUND");
+    const max = "n".repeat(1024);
+    expect((await client.call("UPDATE_ENTRY", { id: plain.entry.id, note: max })).entry.hasNote).toBe(true);
+    expect((await client.call("GET_NOTE", { id: plain.entry.id })).note).toBe(max);
+    expect((await client.call("UPDATE_ENTRY", { id: plain.entry.id, note: "" })).entry.hasNote).toBeUndefined();
+    expect(await code(client.call("GET_NOTE", { id: plain.entry.id }))).toBe("INVALID_STATE");
+    // Eslatma parol/loginni almashtirishda saqlanadi.
+    await client.call("UPDATE_ENTRY", { id: entry.id, password: "new-pw" });
+    expect((await client.call("GET_NOTE", { id: entry.id })).note).toBe(note);
+  }, 30_000);
+
   it("v0.5 import session: one confirmation, then adds without buttons", async () => {
     const { client } = await start("accept");
     await client.call("PAIR_HOST", {});
@@ -202,7 +227,7 @@ describe.skipIf(!available)("interop with native firmware", () => {
     await client.call("IMPORT_BEGIN", { count: 5 });
     await client.call("ADD_ENTRY", { origin: "https://c.example.com", site: "c.example.com", username: "u", password: "pw" });
     expect(await client.call("IMPORT_END", {})).toEqual({ added: 1 });
-    expect(await code(client.call("IMPORT_BEGIN", { count: 31 }))).toBe("INVALID_STATE"); // 4 ta band, 28 bo'sh
+    expect(await code(client.call("IMPORT_BEGIN", { count: 253 }))).toBe("INVALID_STATE"); // 4 ta band, 252 bo'sh
 
     // LOCK sessiyani tugatadi; boshqa buyruqlar tugma talab qiladi
     await client.call("IMPORT_BEGIN", { count: 2 });
@@ -401,15 +426,15 @@ describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the re
     a.client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(`${e.data.action}:${e.data.site ?? ""}`));
     await a.client.call("ADD_ENTRY", { origin: "https://accounts.example.com", site: "example.com", username: "ali", password: "pw-ali" });
     await a.client.call("ADD_ENTRY", { origin: "https://b.example.org", site: "example.org", username: "bob", password: "pw-bob" });
-    await a.client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "root", password: "pw-wifi" });
+    await a.client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "root", password: "pw-wifi", note: "parol: qog'oz yo'q ✓" });
     seen.length = 0;
 
     const file = await runExport(backupApi(a.client), PASS);
     expect(seen).toEqual(["export:3 ta yozuv"]);
     expect(file).toMatchObject({ format: "kalit-backup", version: 1, count: 3 });
     const raw = file.records.map((r) => new TextDecoder("latin1").decode(base64ToBytes(r))).join("|");
-    expect(raw).not.toMatch(/example|pw-ali|pw-bob|pw-wifi|Wi-Fi/);
-    for (const r of file.records) expect(base64ToBytes(r).length).toBeLessThanOrEqual(1127);
+    expect(raw).not.toMatch(/example|pw-ali|pw-bob|pw-wifi|Wi-Fi|qog/);
+    for (const r of file.records) expect(base64ToBytes(r).length).toBeLessThanOrEqual(2156);
     const before = (await a.client.call("LIST", {})).entries;
 
     const b = await device(); // fresh (wiped) device
@@ -440,6 +465,8 @@ describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the re
     expect(await b.client.call("GET_CREDENTIAL", { id: web.id, origin: "https://accounts.example.com" })).toEqual({ username: "ali", password: "pw-ali" });
     const secret = after.find((e) => e.kind === "secret")!;
     expect((await b.client.call("REVEAL_SECRET", { id: secret.id })).password).toBe("pw-wifi");
+    expect(secret.hasNote).toBe(true); // v0.8: eslatma zaxiradan tiklanadi
+    expect((await b.client.call("GET_NOTE", { id: secret.id })).note).toBe("parol: qog'oz yo'q ✓");
 
     // restoring again: everything is a duplicate
     expect(await runRestore(backupApi(b.client), file, PASS)).toEqual({ added: 0, skipped: 3 });
@@ -459,4 +486,52 @@ describe.skipIf(!backupSupported)("interop: v0.6 encrypted backup against the re
     await a.client.call("LOCK", {});
     expect(await code(a.client.call("EXPORT_BEGIN", { passphrase: PASS }))).toBe("LOCKED");
   }, 60_000);
+  describe("v0.10 password audit and generator", () => {
+    async function unlocked() {
+      const d = await start("accept");
+      await d.client.call("PAIR_HOST", {});
+      await d.client.call("ONBOARD", { masterPassword: "correct horse battery" });
+      return d;
+    }
+
+    it("AUDIT_PASSWORDS: duplicates and weak flagged on the device, no passwords on the wire; paging works", async () => {
+      const { client } = await unlocked();
+      const add = (title: string, password: string) =>
+        client.call("ADD_ENTRY", { kind: "secret", title, password }).then((r) => r.entry.id);
+      const a = await add("A", "k8#Vq2!mZp9@Lx4w");
+      const b = await add("B", "k8#Vq2!mZp9@Lx4w");
+      const c = await add("C", "12345678");
+      await add("D", "mXq7TzB2rW9nYc4H");
+      const res = await client.call("AUDIT_PASSWORDS", {});
+      expect(res).toMatchObject({ total: 4, duplicates: 2, weak: 1 });
+      const by = Object.fromEntries(res.items.map((i) => [i.id, i]));
+      expect(by[a]).toEqual({ id: a, duplicate: true, weak: false });
+      expect(by[b]).toEqual({ id: b, duplicate: true, weak: false });
+      expect(by[c]).toEqual({ id: c, duplicate: false, weak: true });
+      expect(res.items).toHaveLength(3);
+
+      await client.call("IMPORT_BEGIN", { count: 70 });
+      for (let i = 0; i < 70; i++) await add(`W${i}`, "12345678");
+      const all = await client.auditAll();
+      expect(all.total).toBe(74);
+      expect(all.items.filter((i) => i.weak)).toHaveLength(71);
+      await client.call("LOCK", {});
+      expect(await code(client.call("AUDIT_PASSWORDS", {}))).toBe("LOCKED");
+    }, 60_000);
+
+    it("generator options: PIN, no symbols, passphrase; invalid combos are rejected by the device", async () => {
+      const { client } = await unlocked();
+      const gen = async (extra: Record<string, unknown>) => {
+        const { entry } = await client.call("ADD_ENTRY", { kind: "secret", title: "G", ...extra } as never);
+        return (await client.call("REVEAL_SECRET", { id: entry.id })).password;
+      };
+      expect(await gen({ charset: 4, generateLength: 6 })).toMatch(/^\d{6}$/);
+      expect(await gen({ charset: 7, generateLength: 30 })).toMatch(/^[A-Za-z2-9]{30}$/);
+      const phrase = await gen({ words: 6 });
+      expect(phrase).toMatch(/^[a-z]+(-[a-z]+){5}$/);
+      // Sxema ruxsat bergan, lekin qurilma rad etadigan hol yo'q: ikkala tomon bir xil qoidalarni qo'llaydi.
+      expect(await code(client.call("ADD_ENTRY", { kind: "secret", title: "X", generateLength: 11 } as never))).toBeTruthy();
+      expect((await client.call("LIST", {})).entries).toHaveLength(3);
+    }, 60_000);
+  });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DeviceError } from "./client";
-import { BackupPassphrase } from "./protocol";
+import { BackupPassphrase, MAX_ENTRIES } from "./protocol";
 
 /**
  * v0.6 shifrlangan zaxira: fayl formati (extension egasi) va eksport/tiklash oqimi.
@@ -10,11 +10,11 @@ import { BackupPassphrase } from "./protocol";
 export const BACKUP_FORMAT = "kalit-backup";
 export const BACKUP_VERSION = 1;
 export const BACKUP_KDF = "pbkdf2-hmac-sha256";
-export const BACKUP_MAX_FILE_BYTES = 256 * 1024;
-export const BACKUP_MAX_RECORD_CHARS = 4096; // base64 belgi; bitta yozuv (≤ ~1 KiB ochiq matn) + AEAD qo'shimchasi
+export const BACKUP_MAX_FILE_BYTES = 1024 * 1024; // v0.8: 256 yozuv x ~2.9 KB base64 (eslatma bilan)
+export const BACKUP_MAX_RECORD_CHARS = 4096; // base64 belgi; bitta yozuv (≤ ~2.1 KiB ochiq matn, eslatma bilan) + AEAD qo'shimchasi
 export const BACKUP_MIN_ITER = 100_000;
 export const BACKUP_MAX_ITER = 1_000_000;
-export const BACKUP_MAX_ENTRIES = 32;
+export const BACKUP_MAX_ENTRIES = MAX_ENTRIES;
 
 const B64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 

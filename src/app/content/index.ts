@@ -1,11 +1,12 @@
 import type {
   ApplyMessage,
+  ApplyTotpMessage,
   HubRequest,
   MatchesResponse,
   OverlayMessage,
   PendingSaveResponse,
 } from "@/shared/api/messages";
-import { findLoginFields, isLoginField, setValue } from "./forms";
+import { fillOtp, findLoginFields, findOtpFields, isLoginField, isOtpField, setValue } from "./forms";
 import { Overlay } from "./overlay";
 
 // Content script yengil: zod/React yo'q, faqat DOM bilan ishlaydi.
@@ -31,11 +32,24 @@ document.addEventListener(
   "focusin",
   async (e) => {
     const el = e.target;
-    if (!(el instanceof Element) || !isLoginField(el)) return;
+    if (!(el instanceof Element)) return;
+    // v0.9: 2FA kodi maydoni — faqat TOTP'li mos yozuvlar bo'lsa "Kodni to'ldirish" menyusi.
+    if (!isLoginField(el) && isOtpField(el)) {
+      lastField = el;
+      if (overlay.current === "save" || Date.now() < suppressMenuUntil) return;
+      const res = await ask<MatchesResponse>({ type: "kalit:matches" });
+      if (!res || res.state !== "unlocked" || !res.entries.some((m) => m.hasTotp)) return;
+      if (document.activeElement === el) overlay.show("otp", el);
+      return;
+    }
+    if (!isLoginField(el)) return;
     lastField = el;
     if (overlay.current === "save" || Date.now() < suppressMenuUntil) return;
 
-    const res = await ask<MatchesResponse>({ type: "kalit:matches" });
+    const { password, username } = findLoginFields(el.form ?? document);
+    // Ko'p bosqichli login 2-qadami: faqat parol maydoni bor — hub eslab qolingan login bo'yicha tanlaydi.
+    const passwordOnly = !!password && !username;
+    const res = await ask<MatchesResponse>({ type: "kalit:matches", ...(passwordOnly ? { passwordOnly } : {}) });
     if (!res || res.state === "disconnected") return;
     if (res.state === "unlocked" && res.entries.length === 0) return;
     if (document.activeElement === el) overlay.show("menu", el);
@@ -46,7 +60,7 @@ document.addEventListener(
 document.addEventListener(
   "mousedown",
   (e) => {
-    if (overlay.current !== "menu") return;
+    if (overlay.current !== "menu" && overlay.current !== "otp") return;
     if (e.target === overlay.element || e.target === lastField) return;
     overlay.hide();
   },
@@ -56,7 +70,7 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (e) => {
-    if (e.key === "Escape" && overlay.current === "menu") overlay.hide();
+    if (e.key === "Escape" && (overlay.current === "menu" || overlay.current === "otp")) overlay.hide();
     if (e.key === "Enter" && e.target instanceof HTMLInputElement && isLoginField(e.target)) {
       capture(e.target.form ?? document);
     }
@@ -74,6 +88,13 @@ window.addEventListener("message", (e: MessageEvent<OverlayMessage>) => {
 // ── Popup → content: to'ldirish ──────────────────────────────────────────
 chrome.runtime.onMessage.addListener((raw: unknown, sender) => {
   if (sender.id !== chrome.runtime.id) return;
+  const totp = raw as ApplyTotpMessage;
+  if (totp?.type === "kalit:apply-totp" && /^\d{6}$/.test(totp.code)) {
+    suppressMenuUntil = Date.now() + 1000;
+    fillOtp(findOtpFields(lastField), totp.code);
+    overlay.hide();
+    return;
+  }
   const msg = raw as ApplyMessage;
   if (msg?.type !== "kalit:apply") return;
 
@@ -90,12 +111,21 @@ const SUBMIT_TEXT = /log ?in|sign ?in|continue|next|kirish|davom|войти|да
 function capture(scope: ParentNode) {
   if (Date.now() - lastCapture < 1500) return;
   const { username, password } = findLoginFields(scope);
-  if (!password?.value || !username?.value.trim()) return; // TODO: multi-step formalar
+  const login = username?.value.trim() ?? "";
+
+  // Ko'p bosqichli login 1-qadami: login bor, parol maydoni yo'q -> loginni (parolsiz) hub'da eslab qolamiz.
+  if (!password && login) {
+    lastCapture = Date.now();
+    void ask({ type: "kalit:remember-username", username: login });
+    return;
+  }
+  // Parol-only sahifada (2-qadam) login maydoni yo'q: hub eslab qolingan loginni qo'shadi.
+  if (!password?.value || (username && !login)) return;
   lastCapture = Date.now();
 
   void ask<PendingSaveResponse>({
     type: "kalit:submitted",
-    username: username.value.trim(),
+    ...(login ? { username: login } : {}),
     password: password.value,
   }).then((res) => {
     // SPA: sahifa o'zgarmasa shu yerda ko'rsatamiz; aks holda keyingi sahifada.

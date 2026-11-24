@@ -27,7 +27,7 @@ Toolbar'dagi Kalit ikonkasi kichik popup'ni ochadi (holat, qulfni ochish, tez ro
 
 - **Popup** — minimal: ulanish/qulf holati, qidiruv, login nusxalash, fill.
 - **Manager (`manager.html`)** — to'liq sahifa: **Parollar** (qidiruv, qo'shish, tahrirlash, o'chirish), **Hostlar** (pin qilingan kompyuterlar, bekor qilish), **Xavfsizlik** (master parolni o'zgartirish), **Sozlamalar** (qurilma ma'lumoti, "saqlanmasin" saytlari). Qurilmada tugma kutilganda markazda tasdiq modal'i chiqadi.
-- Engine faqat tab'siz extension sahifalaridan va aynan `manager.html` tab'idan RPC qabul qiladi; content script/overlay/grant rad etiladi.
+- Engine faqat tab'siz extension sahifalaridan va aynan `manager.html` tab'idan RPC qabul qiladi; content script/overlay rad etiladi.
 
 ## Arxitektura
 
@@ -46,8 +46,8 @@ Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport 
   to'xtatiladi), popup esa yopilganda ulanishni yo'qotardi.
 - **Popup va manager — faqat UI.** Engine holatining ko'zgusi (`store/device-store.ts`), amallar engine'ga RPC bilan boradi.
 - **Background** — engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
-- **USB ruxsati** `grant.html` (oddiy tab) orqali olinadi: tanlash oynasi popup/offscreen'da ochilmaydi. Ruxsatdan keyin
-  engine o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
+- **USB ruxsati** manager sahifasida "USB orqali ulash" bosilganda Chrome tanlash oynasi bilan olinadi (popup/offscreen'da
+  oyna ochilmaydi, popup shuning uchun manager'ni ochadi). Ruxsat extension origin'iga tegishli, engine keyin o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
 - **Firmware yangilash** (`/firmware` sahifasi; Sozlamalar → Umumiy → Firmware → Yangilash yoki ulanish ekranidagi havola):
   `loadVerifiedRelease` GitHub'dan release'ni yuklaydi va **qurilmaga tegmasdan** Ed25519 imzosini (`SHA256SUMS.sig`) va har
   fayl SHA-256'ini tekshiradi; keyin engine portni bo'shatadi, esptool-js (Web Serial) chip nomini release'dagi bilan
@@ -66,7 +66,7 @@ slice'ga faqat `index.ts` (ochiq API) orqali murojaat qilinadi. Qoidalar `src/fs
 ```
 src/
   app/        Extension entry'lari (har biri alohida bundle): manager/, popup/, overlay/, background/,
-              content/, engine/ (offscreen: holat mashinasi + hub), grant/, styles/globals.css
+              content/, engine/ (offscreen: holat mashinasi + hub), styles/globals.css
   pages/      Marshrut sahifalari: vault, entry-form, settings (umumiy/hostlar/import/xavfsizlik), connect, pair, setup, unlock,
               popup-vault, popup-connect
   widgets/    Katta bloklar: manager-shell, popup-shell, entry-details-dialog, overlay-inline-menu, overlay-save-prompt
@@ -83,7 +83,7 @@ Yangi shadcn komponent: `npx shadcn@latest add dialog`.
 
 USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
 Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
+To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). v0.7 sig'im 256, sahifalangan `LIST`, `updatedAt` (`now`), qurilma auto-lock (firmware ≥ 1.1.0): [`docs/protocol-v0.7.md`](docs/protocol-v0.7.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
 
 **Import:** Manager'dagi Import sahifasi (Bitwarden JSON / CSV) boshlashdan oldin qurilmada bir marta tasdiqlanadi ("N ta yozuv"); shundan keyin barcha yozuvlar tugma bosilmasdan qo'shiladi. Boshqa amallar (parolni olish, o'chirish, yangilash...) har doim alohida tasdiq talab qiladi. Eski firmware'da (< 0.4.0) import ishlamaydi.
 **Zaxira:** Sozlamalar → Zaxira: yozuvlar qurilmada alohida zaxira paroli bilan shifrlanib `kalit-backup-YYYY-MM-DD.kalit` fayliga olinadi va shu paroldan tiklanadi. Zaxira paroli tiklanmaydi — yo'qolsa fayl ochilmaydi. Extension hech qachon ochiq matn parolni ko'rmaydi.

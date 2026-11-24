@@ -33,6 +33,9 @@ export const ENGINE_OPS = [
   "lockIfUnlocked",
   "getCredential",
   "revealSecret",
+  "getNote",
+  "getTotp",
+  "auditPasswords",
   "addEntry",
   "deleteEntry",
   "importBegin",
@@ -77,13 +80,11 @@ export const isEngineRequest = (m: unknown): m is EngineRequest =>
 /** extension sahifasi -> background */
 export type BackgroundRequest =
   | { type: "bg:ensure-engine" }
-  | { type: "bg:apply"; tabId: number; username: string; password: string };
+  | { type: "bg:apply"; tabId: number; username: string; password: string }
+  | { type: "bg:apply-totp"; tabId: number; code: string };
 
 /** background -> engine */
 export interface TabRemovedEvent {
   type: "bg:tab-removed";
   tabId: number;
 }
-
-/** grant.html -> engine */
-export const PORT_GRANTED = "KALIT_PORT_GRANTED";

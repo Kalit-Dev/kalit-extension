@@ -6,7 +6,7 @@ import { SerialTransport } from "@/shared/api/device/serial-transport";
 import { describeError, errorCode } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/button";
 
-/** USB orqali ulanish tugmasi. */
+/** USB orqali ulanish tugmasi (manager tab'ida: Chrome tanlash oynasi shu yerda ochiladi). */
 export function ConnectDevice() {
   const connect = useDevice((s) => s.connect);
   const busy = useDevice((s) => s.phase === "connecting");
@@ -14,11 +14,15 @@ export function ConnectDevice() {
 
   const run = async () => {
     try {
-      // Ruxsat berilgan port bor bo'lsa — jim ulanamiz. Yo'q bo'lsa — faqat shunda ruxsat tab'i ochiladi
-      // (popup'da tanlash oynasi chiqmaydi).
-      if (!(await SerialTransport.fromGranted())) {
-        void chrome.tabs.create({ url: chrome.runtime.getURL("grant.html") });
-        return;
+      // Ruxsat berilgan port bo'lmasa — tanlash oynasi. Ruxsat extension origin'iga tegishli,
+      // shuning uchun engine (offscreen) keyin shu portni getPorts() bilan ochadi.
+      if (!(await SerialTransport.grantedPort())) {
+        try {
+          await SerialTransport.requestPort();
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "NotFoundError") return; // foydalanuvchi bekor qildi
+          throw e;
+        }
       }
       await connect("usb");
     } catch (e) {

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { DeviceClient, DeviceError, type ClientErrorCode } from "@/shared/api/device/client";
 import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/shared/api/device/keys";
-import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/shared/api/device/protocol";
+import type { AddSecretEntryParams, AddWebEntryParams, AuditReport, Credential, EntryMeta, HostInfo, Status, TotpCode } from "@/shared/api/device/protocol";
 import { SecureTransport } from "@/shared/api/device/secure-transport";
 import { SerialTransport } from "@/shared/api/device/serial-transport";
 import type { RawTransport, TransportKind } from "@/shared/api/device/transport";
@@ -41,9 +41,16 @@ interface DeviceStore {
   getCredential(id: string, origin: string): Promise<Credential>;
   /** `site` ni store o'zi hisoblaydi (tldts); qurilma uni origin'ga qarshi tekshiradi. */
   /** Web: `site` ni store hisoblaydi. Secret (`kind: "secret"`): origin/site yo'q. */
-  addEntry(params: Omit<AddWebEntryParams, "site"> | AddSecretEntryParams): Promise<EntryMeta>;
+  /** `totp` — base64 (engine <-> popup JSON); xom urug' bayt 10..64. */
+  addEntry(params: (Omit<AddWebEntryParams, "site" | "totp"> | Omit<AddSecretEntryParams, "totp">) & { totp?: string }): Promise<EntryMeta>;
   /** Faqat secret yozuvlar; qurilmada tasdiq talab qilinadi. Natija hech qayerda saqlanmaydi. */
   revealSecret(id: string): Promise<{ username: string; password: string }>;
+  /** v0.8: maxfiy eslatma matni; qurilmada tasdiq talab qilinadi. Natija hech qayerda saqlanmaydi. */
+  getNote(id: string): Promise<string>;
+  /** v0.9: TOTP kodi; qurilmada tasdiq talab qilinadi. `origin` — sahifa origin'i (content-script'dan). Natija saqlanmaydi. */
+  getTotp(id: string, origin?: string): Promise<TotpCode>;
+  /** v0.10: parol auditi (qurilmada hisoblanadi, tasdiqsiz). Faqat sonlar va yozuv bayroqlari; parol hech qachon kelmaydi. */
+  auditPasswords(): Promise<AuditReport>;
   /** Pin qilingan qurilma kalitini unutadi (DEVICE_KEY_CHANGED dan keyin). */
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
@@ -69,7 +76,8 @@ interface DeviceStore {
     onProgress?: (p: BackupProgress) => void,
   ): Promise<{ added: number; skipped: number }>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
-  updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
+  /** `totp`: base64 urug'; "" = TOTP'ni o'chirish. */
+  updateEntry(id: string, patch: { title?: string; username?: string; password?: string; note?: string; totp?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
   revokeHost(slot: number): Promise<void>;
 }
@@ -104,7 +112,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       set({ phase: "connecting" });
       let secure: SecureTransport | null = null;
       try {
-        // Ruxsat grant.html tab'ida olinadi; engine faqat ruxsat berilgan portni ochadi.
+        // Ruxsat manager tab'ida (ConnectDevice) olinadi; engine faqat ruxsat berilgan portni ochadi.
         const raw: RawTransport | null = await SerialTransport.fromGranted();
         if (!raw) {
           set({ phase: "disconnected" });
@@ -135,7 +143,8 @@ export const useDevice = create<DeviceStore>()((set, get) => {
           } else if (e.event === "CONFIRM_DONE") {
             set({ pending: null });
           } else if (e.event === "LOCKED") {
-            set({ phase: "locked", entries: [], pending: null });
+            // v0.7: qurilma harakatsizlikdan keyin o'zi qulfladi (qo'lda LOCK bilan bir xil holat).
+            set((st) => ({ phase: "locked", entries: [], pending: null, status: st.status && { ...st.status, state: "LOCKED" } }));
           }
         });
         // Eski ulanishning kech kelgan yopilish xabari yangi ulanishni buzmasligi kerak.
@@ -165,7 +174,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       if (!status.hostTrusted) return set({ phase: "pairing", entries: [] });
       if (status.state === "FACTORY") return set({ phase: "factory", entries: [] });
       if (status.state === "LOCKED") return set({ phase: "locked", entries: [] });
-      const { entries } = await client().call("LIST", {});
+      const entries = await client().listAll();
       set({ phase: "unlocked", entries });
     },
 
@@ -198,7 +207,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
 
     async lock() {
       await client().call("LOCK", {});
-      set({ phase: "locked", entries: [], pending: null });
+      set((st) => ({ phase: "locked", entries: [], pending: null, status: st.status && { ...st.status, state: "LOCKED" } }));
     },
 
     getCredential(id, origin) {
@@ -209,15 +218,29 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       return client().call("REVEAL_SECRET", { id });
     },
 
+    async getNote(id) {
+      return (await client().call("GET_NOTE", { id })).note;
+    },
+
+    getTotp(id, origin) {
+      return client().getTotp(id, origin);
+    },
+
+    auditPasswords() {
+      return client().auditAll();
+    },
+
     async addEntry(params) {
+      const { totp, ...rest } = params;
+      const seed = totp ? { totp: base64ToBytes(totp) } : {};
       let wire: AddWebEntryParams | AddSecretEntryParams;
-      if ("kind" in params && params.kind === "secret") {
-        wire = params;
+      if ("kind" in rest && rest.kind === "secret") {
+        wire = { ...rest, ...seed };
       } else {
-        const web = params as Omit<AddWebEntryParams, "site">;
+        const web = rest as Omit<AddWebEntryParams, "site" | "totp">;
         const site = siteOf(web.origin);
         if (!site) throw new DeviceError("INVALID_STATE");
-        wire = { ...web, site };
+        wire = { ...web, site, ...seed };
       }
       const { entry } = await client().call("ADD_ENTRY", wire);
       set((s) => ({ entries: [...s.entries, entry] }));
@@ -292,7 +315,8 @@ export const useDevice = create<DeviceStore>()((set, get) => {
     },
 
     async updateEntry(id, patch) {
-      const { entry } = await client().call("UPDATE_ENTRY", { id, ...patch });
+      const { totp, ...rest } = patch;
+      const { entry } = await client().call("UPDATE_ENTRY", { id, ...rest, ...(totp === undefined ? {} : { totp: base64ToBytes(totp) }) });
       set((s) => ({ entries: s.entries.map((e) => (e.id === entry.id ? entry : e)) }));
       return entry;
     },

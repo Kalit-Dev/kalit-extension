@@ -22,7 +22,7 @@ physical Kalit device (USB, ESP32), fills in the credentials or offers to save n
   and checked by the device. Plain `http://` is limited to localhost/127.0.0.1 for development; remote sites need HTTPS.
   Page content is never sent anywhere.
 - **Content script** (`content.js`, `document_idle`, top frame only): detects login forms, intercepts submit to offer saving, fills fields.
-- **Web Serial** (no manifest permission): the user grants a specific USB device through Chrome's chooser on `grant.html`;
+- **Web Serial** (no manifest permission): the user grants a specific USB device through Chrome's chooser on the manager page (`manager.html`);
   the chooser is filtered to the Espressif, Silicon Labs and WCH USB vendor IDs used by supported boards. The same port is
   used by the Firmware page to flash a verified firmware image to the device's ROM bootloader (esptool-js, bundled).
 - **Host permission `https://*/*` also covers** the firmware download above (cross-origin fetch from the extension page).

@@ -16,6 +16,7 @@ const TITLES: Record<ConfirmAction, string> = {
   import: "Importni tasdiqlash",
   export: "Zaxira nusxani tasdiqlang",
   restore: "Tiklashni tasdiqlang",
+  totp: "2FA kodini ko'rsatish",
 };
 
 /** Qurilma tugma bosilishini kutayotganda butun panel ustida ko'rinadi. */

@@ -72,3 +72,33 @@ describe("parseBitwardenExport", () => {
     expect(() => parseBitwardenExport("nope")).toThrow(BitwardenFormatError);
   });
 });
+
+describe("parseBitwardenExport: login.totp", () => {
+  const B32 = "JBSWY3DPEHPK3PXP";
+  const withTotp = (totp: string, name = "Example", user = "ali") =>
+    login({ name, login: { username: user, password: "p", uris: [{ uri: "https://example.com" }], totp } });
+
+  it("maps base32 and otpauth totp to a base64 seed", () => {
+    const a = parseBitwardenExport(doc([withTotp(B32)]));
+    const b = parseBitwardenExport(doc([withTotp(`otpauth://totp/Example:ali?secret=${B32}&issuer=Example&digits=6&period=30`)]));
+    expect(a.items[0]!.totp).toBe("SGVsbG8h3q2+7w=="); // base32 JBSWY3DPEHPK3PXP = "Hello!\xde\xad\xbe\xef"
+    expect(b.items[0]!.totp).toBe(a.items[0]!.totp);
+    expect(a.totpDropped).toBeUndefined();
+  });
+
+  it("imports unsupported totp (SHA256 / 8 digits / 60 s / steam / garbage) without it and counts them", () => {
+    const r = parseBitwardenExport(
+      doc([
+        withTotp(`otpauth://totp/x?secret=${B32}&algorithm=SHA256`, "a", "u1"),
+        withTotp(`otpauth://totp/x?secret=${B32}&digits=8`, "b", "u2"),
+        withTotp(`otpauth://totp/x?secret=${B32}&period=60`, "c", "u3"),
+        withTotp(`steam://${B32}`, "d", "u4"),
+        withTotp("!!!", "e", "u5"),
+        withTotp(B32, "ok", "u6"),
+      ]),
+    );
+    expect(r.items).toHaveLength(6);
+    expect(r.items.filter((i) => i.totp)).toHaveLength(1);
+    expect(r.totpDropped).toBe(5);
+  });
+});

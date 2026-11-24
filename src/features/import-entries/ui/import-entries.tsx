@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { isSecret } from "@/entities/entry";
+import { MAX_ENTRIES } from "@/shared/api/device/protocol";
 import { siteOf, toOrigin } from "@/shared/lib/domain";
 import { describeError, errorCode } from "@/shared/lib/errors";
 import { cn } from "@/shared/lib/utils";
@@ -19,11 +20,11 @@ import {
 } from "../lib/bitwarden";
 import { parseImportFile } from "../lib/import-file";
 
-const VAULT_CAPACITY = 32; // firmware: kMaxEntries
+const VAULT_CAPACITY = MAX_ENTRIES; // firmware: kMaxEntries (v0.7: 256)
 const STOP_CODES = new Set(["LOCKED", "DISCONNECTED", "NOT_TRUSTED", "WIPED", "PROTOCOL"]);
 
 type Choice = { mode: "skip" | "web" | "secret"; url: string };
-type SecretItem = { title: string; username: string; password: string };
+type SecretItem = { title: string; username: string; password: string; totp?: string };
 type QueueItem = { kind: "web"; item: ImportItem } | { kind: "secret"; item: SecretItem };
 
 const CHOICES = [
@@ -42,7 +43,7 @@ function toWebItem(n: NoUrlItem, url: string): ImportItem | string {
   const room = 160 - enc.encode(site).length - enc.encode(n.username).length;
   if (room < 0) return "Sayt+login 160 baytdan oshadi";
   const title = truncateBytes(truncateBytes(n.name, 64), room);
-  return { origin, site, username: n.username, password: n.password, ...(title ? { title } : {}) };
+  return { origin, site, username: n.username, password: n.password, ...(title ? { title } : {}), ...(n.totp ? { totp: n.totp } : {}) };
 }
 
 export function ImportEntries() {
@@ -57,6 +58,7 @@ export function ImportEntries() {
   const [noUrl, setNoUrl] = useState<NoUrlItem[]>([]);
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [skipped, setSkipped] = useState<Skipped[]>([]);
+  const [totpDropped, setTotpDropped] = useState(0);
   const [running, setRunning] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(0);
@@ -81,7 +83,12 @@ export function ImportEntries() {
       if (typeof w === "string") rowError[i] = w;
       else chosenWeb.push(w);
     } else if (c.mode === "secret") {
-      chosenSecret.push({ title: secretTitle(n.name, n.username), username: n.username, password: n.password });
+      chosenSecret.push({
+        title: secretTitle(n.name, n.username),
+        username: n.username,
+        password: n.password,
+        ...(n.totp ? { totp: n.totp } : {}),
+      });
     }
   });
 
@@ -114,6 +121,7 @@ export function ImportEntries() {
     setNoUrl([]);
     setChoices({});
     setSkipped([]);
+    setTotpDropped(0);
     setDone(0);
     setFailed([]);
     if (fileRef.current) fileRef.current.value = "";
@@ -127,6 +135,7 @@ export function ImportEntries() {
       setItems(parsed.items);
       setNoUrl(parsed.noUrl);
       setSkipped(parsed.skipped);
+      setTotpDropped(parsed.totpDropped ?? 0);
     } catch (e) {
       toast.error(e instanceof BitwardenFormatError ? e.message : "Faylni o'qib bo'lmadi");
     }
@@ -162,6 +171,7 @@ export function ImportEntries() {
               username: q.item.username,
               password: q.item.password,
               ...(q.item.title ? { title: q.item.title } : {}),
+              ...(q.item.totp ? { totp: q.item.totp } : {}),
             });
           } else {
             await addEntry({ kind: "secret", ...q.item });
@@ -267,6 +277,12 @@ export function ImportEntries() {
             {overflow > 0 && (
               <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
                 Qurilmada {free} ta bo'sh joy bor: {overflow} ta yozuv sig'maydi va import qilinmaydi.
+              </p>
+            )}
+            {totpDropped > 0 && (
+              <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                {totpDropped} ta yozuvning 2FA kaliti qo'llanmaydi (qurilma faqat SHA1, 6 raqam, 30 soniyani biladi): ular 2FA'siz
+                import qilinadi.
               </p>
             )}
             {noUrl.length > 0 && (

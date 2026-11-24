@@ -1,4 +1,4 @@
-import { ChevronRight, Lock } from "lucide-react";
+import { ChevronRight, Lock, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfirmWait } from "@/entities/device";
 import { Logo } from "@/shared/ui/logo";
@@ -13,7 +13,8 @@ type View =
   | { kind: "waiting"; entry: MatchItem; expiresAt: number }
   | { kind: "error"; message: string };
 
-export function InlineMenu() {
+/** `otp`: sahifada 2FA kodi maydoni — faqat TOTP'li yozuvlar, tanlansa kod to'ldiriladi. */
+export function InlineMenu({ otp = false }: { otp?: boolean }) {
   const [view, setView] = useState<View>({ kind: "loading" });
 
   useEffect(() => {
@@ -25,7 +26,7 @@ export function InlineMenu() {
   const pick = async (entry: MatchItem) => {
     setView({ kind: "waiting", entry, expiresAt: Date.now() + CONFIRM_TIMEOUT_MS });
     try {
-      await hub<HubResult>({ type: "kalit:fill", id: entry.id });
+      await hub<HubResult>({ type: otp ? "kalit:totp" : "kalit:fill", id: entry.id });
       closeOverlay();
     } catch (e) {
       setView({ kind: "error", message: describeError(e) });
@@ -56,7 +57,7 @@ export function InlineMenu() {
 
           {view.kind === "ready" && view.data.state === "unlocked" && (
             <ul className="grid p-1">
-              {view.data.entries.map((e) => (
+              {(otp ? view.data.entries.filter((e) => e.hasTotp) : view.data.entries).map((e) => (
                 <li key={e.id}>
                   <button
                     type="button"
@@ -70,6 +71,8 @@ export function InlineMenu() {
                       <span className="truncate text-sm">{e.username}</span>
                       {e.title && <span className="truncate text-xs text-muted-foreground">{e.title}</span>}
                     </span>
+                    {otp && <span className="shrink-0 text-xs text-muted-foreground">Kodni to'ldirish</span>}
+                    {otp ? <ShieldCheck className="size-4 text-muted-foreground" /> : null}
                     <ChevronRight className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                   </button>
                 </li>

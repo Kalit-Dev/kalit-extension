@@ -57,7 +57,7 @@ describe("DeviceClient timeouts", () => {
     const t = fakeTransport();
     const client = new DeviceClient(t);
     await expect(client.call("IMPORT_BEGIN", { count: 0 })).rejects.toThrow();
-    await expect(client.call("IMPORT_BEGIN", { count: 33 })).rejects.toThrow();
+    await expect(client.call("IMPORT_BEGIN", { count: 257 })).rejects.toThrow();
     const end = client.call("IMPORT_END", {});
     t.reply({ id: 3, ok: true, result: { added: 2 } }); // 1-2: client-side rad etilgan chaqiruvlar ham id sarflaydi
     await expect(end).resolves.toEqual({ added: 2 });
@@ -104,7 +104,7 @@ describe("protocol v0.4 parsing", () => {
     expect((await q).entry.kind).toBe("secret");
     expect(sent).toEqual([
       { id: 1, cmd: "REVEAL_SECRET", params: { id: "e1" } },
-      { id: 2, cmd: "ADD_ENTRY", params: { kind: "secret", title: "T", generateLength: 20 } },
+      { id: 2, cmd: "ADD_ENTRY", params: { kind: "secret", title: "T", generateLength: 20, now: expect.any(Number) } },
     ]);
   });
 });
@@ -140,7 +140,7 @@ describe("protocol v0.6 backup commands", () => {
     await expect(client.call("EXPORT_BEGIN", { passphrase: "é".repeat(65) })).rejects.toThrow(); // 130 bytes
     await expect(client.call("RESTORE_BEGIN", { passphrase: "backup passphrase", salt: new Uint8Array(15), iter: 200_000, count: 1 })).rejects.toThrow();
     await expect(client.call("RESTORE_BEGIN", { passphrase: "backup passphrase", salt, iter: 99_999, count: 1 })).rejects.toThrow();
-    await expect(client.call("RESTORE_BEGIN", { passphrase: "backup passphrase", salt, iter: 200_000, count: 33 })).rejects.toThrow();
+    await expect(client.call("RESTORE_BEGIN", { passphrase: "backup passphrase", salt, iter: 200_000, count: 257 })).rejects.toThrow();
     expect(sent).toEqual([]);
 
     // the 5 rejected calls above consumed ids 1-5
@@ -154,5 +154,152 @@ describe("protocol v0.6 backup commands", () => {
     const end = client.call("RESTORE_END", {});
     t.reply({ id: 8, ok: true, result: { added: 1, skipped: 2 } });
     await expect(end).resolves.toEqual({ added: 1, skipped: 2 });
+  });
+});
+
+describe("protocol v0.7 client layer", () => {
+  const meta = (n: number) => ({ id: `e${n}`, site: "x.com", username: "u", updatedAt: 1 });
+
+  /** Transport that answers LIST with the given pages (by cursor) and records every sent frame. */
+  function listTransport(pages: Record<number, { entries: ReturnType<typeof meta>[]; next?: number }>) {
+    const t = fakeTransport();
+    const sent: { id: number; cmd: string; params: { cursor?: number; now?: number } }[] = [];
+    t.send = async (m) => {
+      const req = m as (typeof sent)[number];
+      sent.push(req);
+      queueMicrotask(() => t.reply({ id: req.id, ok: true, result: pages[req.params.cursor ?? 0] }));
+    };
+    return { t, sent };
+  }
+
+  it("listAll follows `next` and omits cursor on the first page", async () => {
+    const { t, sent } = listTransport({
+      0: { entries: [meta(1), meta(2)], next: 2 },
+      2: { entries: [meta(3)], next: 5 },
+      5: { entries: [meta(4)] },
+    });
+    const all = await new DeviceClient(t).listAll();
+    expect(all.map((e) => e.id)).toEqual(["e1", "e2", "e3", "e4"]);
+    expect(sent.map((s) => s.params)).toEqual([{}, { cursor: 2 }, { cursor: 5 }]);
+  });
+
+  it("listAll throws PROTOCOL when next does not advance", async () => {
+    const { t } = listTransport({ 0: { entries: [meta(1)], next: 3 }, 3: { entries: [meta(2)], next: 3 } });
+    await expect(new DeviceClient(t).listAll()).rejects.toMatchObject({ code: "PROTOCOL" });
+    const { t: t0 } = listTransport({ 0: { entries: [meta(1)], next: 0 } });
+    await expect(new DeviceClient(t0).listAll()).rejects.toMatchObject({ code: "PROTOCOL" });
+  });
+
+  it("listAll gives up after 64 pages", async () => {
+    const pages: Record<number, { entries: ReturnType<typeof meta>[]; next?: number }> = {};
+    for (let i = 0; i < 200; i++) pages[i === 0 ? 0 : i] = { entries: [meta(i)], next: i + 1 };
+    const { t, sent } = listTransport(pages);
+    await expect(new DeviceClient(t).listAll()).rejects.toMatchObject({ code: "PROTOCOL" });
+    expect(sent).toHaveLength(64);
+  });
+
+  it("adds `now` (integer unix seconds) to ADD_ENTRY, UPDATE_ENTRY and RESTORE_ENTRY only", async () => {
+    const sent: { cmd: string; params: { now?: number } }[] = [];
+    const t = fakeTransport();
+    t.send = async (m) => void sent.push(m as (typeof sent)[number]);
+    const client = new DeviceClient(t);
+    void client.call("ADD_ENTRY", { origin: "https://a.com", site: "a.com", username: "u", password: "p" }).catch(() => undefined);
+    void client.call("ADD_ENTRY", { kind: "secret", title: "T", password: "p" }).catch(() => undefined);
+    void client.call("UPDATE_ENTRY", { id: "x", password: "p" }).catch(() => undefined);
+    void client.call("RESTORE_ENTRY", { index: 0, blob: new Uint8Array(30) }).catch(() => undefined);
+    void client.call("DELETE_ENTRY", { id: "x" }).catch(() => undefined);
+    void client.call("LIST", {}).catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    const now = Math.floor(Date.now() / 1000);
+    const [a, b, u, r, d, l] = sent;
+    for (const m of [a, b, u, r]) {
+      expect(Number.isInteger(m!.params.now)).toBe(true);
+      expect(Math.abs(m!.params.now! - now)).toBeLessThanOrEqual(2);
+    }
+    expect(d!.params).toEqual({ id: "x" });
+    expect(l!.params).toEqual({});
+  });
+});
+
+describe("DeviceClient v0.9 TOTP", () => {
+  it("getTotp auto-fills integer `now`; origin is passed only when given", async () => {
+    const sent: { cmd: string; params: { id?: string; origin?: string; now?: number } }[] = [];
+    const t = fakeTransport();
+    t.send = async (m) => void sent.push(m as (typeof sent)[number]);
+    const client = new DeviceClient(t);
+    void client.getTotp("e1").catch(() => undefined);
+    void client.getTotp("e2", "https://example.com").catch(() => undefined);
+    void client.call("GET_TOTP", { id: "e3" }).catch(() => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    const now = Math.floor(Date.now() / 1000);
+    expect(sent.map((m) => m.cmd)).toEqual(["GET_TOTP", "GET_TOTP", "GET_TOTP"]);
+    for (const m of sent) {
+      expect(Number.isInteger(m.params.now)).toBe(true);
+      expect(Math.abs(m.params.now! - now)).toBeLessThanOrEqual(2);
+    }
+    expect(sent[0]!.params).toEqual({ id: "e1", now: expect.any(Number) });
+    expect(sent[1]!.params).toEqual({ id: "e2", origin: "https://example.com", now: expect.any(Number) });
+  });
+});
+
+describe("pair() (v0.11 PAIR_VERIFY)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function recording() {
+    const t = fakeTransport();
+    const sent: { id: number; cmd: string; params: unknown }[] = [];
+    t.send = async (f) => void sent.push(f as (typeof sent)[number]);
+    return { t, sent };
+  }
+  const verifyEvent = (d: Record<string, unknown>) => ({ event: "CONFIRM_PENDING", data: { action: "pair", timeoutMs: 30_000, ...d } });
+
+  it("gives PAIR_HOST the verify window plus the button window", async () => {
+    vi.useFakeTimers();
+    const { t } = recording();
+    const client = new DeviceClient(t);
+    const p = client.pair(() => true);
+    await vi.advanceTimersByTimeAsync(41_000);
+    t.reply({ id: 1, ok: true, result: {} });
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it("sends PAIR_VERIFY with the choice, then reports the PAIR_HOST outcome", async () => {
+    const { t, sent } = recording();
+    const client = new DeviceClient(t);
+    const p = client.pair((info) => info.code === "1234");
+    t.reply(verifyEvent({ code: "1234", phase: "verify" }));
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ id: 2, cmd: "PAIR_VERIFY", params: { match: true } });
+    t.reply({ id: 2, ok: true, result: {} });
+    t.reply({ id: 1, ok: false, error: "USER_REJECTED" });
+    await expect(p).rejects.toMatchObject({ code: "USER_REJECTED" });
+  });
+
+  it("ignores the button-phase CONFIRM_PENDING (no phase)", async () => {
+    const { t, sent } = recording();
+    const choose = vi.fn(() => true);
+    const client = new DeviceClient(t);
+    const p = client.pair(choose);
+    t.reply(verifyEvent({ code: "1234" }));
+    t.reply({ id: 1, ok: true, result: {} });
+    await expect(p).resolves.toBeUndefined();
+    expect(choose).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+  });
+
+  it("throws PROTOCOL when the verify event carries no code, answering match=false", async () => {
+    const { t, sent } = recording();
+    const choose = vi.fn(() => true);
+    const client = new DeviceClient(t);
+    const p = client.pair(choose);
+    t.reply(verifyEvent({ phase: "verify" }));
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ cmd: "PAIR_VERIFY", params: { match: false } });
+    t.reply({ id: 2, ok: true, result: {} });
+    t.reply({ id: 1, ok: false, error: "USER_REJECTED" });
+    await expect(p).rejects.toMatchObject({ code: "PROTOCOL" });
+    expect(choose).not.toHaveBeenCalled();
   });
 });

@@ -19,7 +19,6 @@ export default defineConfig(({ mode }) => ({
         popup: r("./popup.html"),
         overlay: r("./overlay.html"),
         manager: r("./manager.html"),
-        grant: r("./grant.html"),
         offscreen: r("./offscreen.html"),
         background: r("./src/app/background/index.ts"),
       },

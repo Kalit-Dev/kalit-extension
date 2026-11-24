@@ -1,4 +1,4 @@
-export type OverlayView = "menu" | "save";
+export type OverlayView = "menu" | "save" | "otp";
 
 const HOST_STYLE = "all: initial !important; position: fixed !important; z-index: 2147483647 !important;";
 const FRAME_STYLE =

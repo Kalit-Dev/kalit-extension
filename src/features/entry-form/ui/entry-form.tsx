@@ -1,13 +1,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Cpu, Globe, Loader2, Lock, PenLine, ShieldCheck } from "lucide-react";
+import { Cpu, Globe, KeyRound, Loader2, Lock, NotebookPen, PenLine, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import { useDevice } from "@/entities/device";
 import { EntryAvatar, isSecret } from "@/entities/entry";
+import { revealNote } from "@/features/reveal-credential";
+import { bytesToBase64 } from "@/shared/api/device/backup";
+import { NOTE_MAX_BYTES } from "@/shared/api/device/protocol";
 import { toOrigin } from "@/shared/lib/domain";
 import { describeError } from "@/shared/lib/errors";
+import { parseTotpInput, TotpInputError } from "@/shared/lib/totp";
 import { cn } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -16,6 +21,17 @@ import { Field } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { PasswordInput } from "@/shared/ui/password-input";
 import { Segmented } from "@/shared/ui/segmented";
+import {
+  DEFAULT_GENERATOR,
+  describeGenerator,
+  generatorError,
+  generatorParams,
+  type GeneratorSettings,
+} from "../model/generator-options";
+import { GeneratorOptions } from "./generator-options";
+import { Textarea } from "@/shared/ui/textarea";
+
+const noteBytes = (s: string) => new TextEncoder().encode(s).length;
 
 const schema = z.object({
   url: z.string().trim(),
@@ -24,6 +40,11 @@ const schema = z.object({
   title: z.string().trim().max(64, "Ko'pi bilan 64 ta belgi"),
   mode: z.enum(["generate", "manual"]),
   password: z.string().max(512),
+  note: z.string().refine((s) => noteBytes(s) <= NOTE_MAX_BYTES, `Eslatma ${NOTE_MAX_BYTES} baytdan oshmasin`),
+  clearNote: z.boolean(),
+  /** v0.9: base32 kalit yoki otpauth:// havola (qurilmaga xom baytlar bo'lib ketadi; formada saqlanmaydi). */
+  totp: z.string(),
+  clearTotp: z.boolean(),
 });
 type Values = z.infer<typeof schema>;
 
@@ -55,12 +76,39 @@ export function EntryForm() {
       title: entry?.title ?? "",
       mode: editing ? "manual" : "generate",
       password: "",
+      note: "",
+      clearNote: false,
+      totp: "",
+      clearTotp: false,
     },
   });
+  const [loadingNote, setLoadingNote] = useState(false);
+  /** Tahrirlashda mavjud TOTP bor: "o'rnatilgan" holat, "Almashtirish" bosilsa kiritish maydoni ochiladi. */
+  const [replacingTotp, setReplacingTotp] = useState(false);
   const { errors, isSubmitting } = form.formState;
   const mode = form.watch("mode");
+  const [gen, setGen] = useState<GeneratorSettings>(DEFAULT_GENERATOR);
   const kind = form.watch("kind");
   const secret = kind === "secret";
+  const note = form.watch("note");
+  const clearNote = form.watch("clearNote");
+  const clearTotp = form.watch("clearTotp");
+  const totpInstalled = editing && !!entry?.hasTotp;
+  const showTotpInput = !totpInstalled || replacingTotp;
+
+  /** Tahrirlashda joriy eslatma ko'rinmaydi (u qurilmada): xohlasa qurilmadan (tugma bilan) yuklaydi. */
+  const loadNote = async () => {
+    if (!entry) return;
+    setLoadingNote(true);
+    try {
+      form.setValue("note", await revealNote(entry), { shouldValidate: true });
+      form.setValue("clearNote", false);
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setLoadingNote(false);
+    }
+  };
 
   if (editing && !entry) {
     return (
@@ -76,6 +124,17 @@ export function EntryForm() {
   }
 
   const onSubmit = form.handleSubmit(async (v) => {
+    // v0.9: 2FA kaliti — tasdiqdan oldin mahalliy tekshiruv (SHA1/6/30, 10..64 bayt).
+    let seed: Uint8Array | undefined;
+    if (showTotpInput && v.totp.trim() !== "") {
+      try {
+        seed = parseTotpInput(v.totp);
+      } catch (e) {
+        form.setError("totp", { message: e instanceof TotpInputError ? e.message : "2FA kaliti noto'g'ri" });
+        return;
+      }
+    }
+    const totp = seed ? bytesToBase64(seed) : undefined;
     try {
       if (editing && entry) {
         if (!isSecret(entry) && !v.username) {
@@ -86,10 +145,14 @@ export function EntryForm() {
           form.setError("title", { message: "Nom kiriting" });
           return;
         }
-        const patch: { title?: string; username?: string; password?: string } = {};
+        const patch: { title?: string; username?: string; password?: string; note?: string; totp?: string } = {};
         if (v.username !== entry.username) patch.username = v.username;
         if (v.title !== (entry.title ?? "")) patch.title = v.title;
         if (v.password) patch.password = v.password;
+        if (v.clearNote) patch.note = "";
+        else if (v.note !== "") patch.note = v.note;
+        if (totp) patch.totp = totp;
+        else if (v.clearTotp && totpInstalled) patch.totp = ""; // bo'sh = TOTP'ni o'chirish
         if (Object.keys(patch).length === 0) {
           navigate("/vault");
           return;
@@ -108,11 +171,17 @@ export function EntryForm() {
           form.setError("password", { message: "Parolni kiriting" });
           return;
         }
+        if (v.mode === "generate" && generatorError(gen)) {
+          toast.error(generatorError(gen)!);
+          return;
+        }
         await addEntry({
           kind: "secret",
           title: v.title,
           username: v.username,
-          ...(v.mode === "manual" ? { password: v.password } : { generateLength: 20 }),
+          ...(v.note ? { note: v.note } : {}),
+          ...(totp ? { totp } : {}),
+          ...(v.mode === "manual" ? { password: v.password } : generatorParams(gen)),
         });
       } else {
         if (!v.username) {
@@ -128,14 +197,20 @@ export function EntryForm() {
           form.setError("password", { message: "Parolni kiriting" });
           return;
         }
+        if (v.mode === "generate" && generatorError(gen)) {
+          toast.error(generatorError(gen)!);
+          return;
+        }
         await addEntry({
           origin,
           username: v.username,
           title: v.title || undefined,
-          ...(v.mode === "manual" ? { password: v.password } : { generateLength: 20 }),
+          ...(v.note ? { note: v.note } : {}),
+          ...(totp ? { totp } : {}),
+          ...(v.mode === "manual" ? { password: v.password } : generatorParams(gen)),
         });
       }
-      form.reset(); // parol formada qolmasin
+      form.reset(); // parol, eslatma va 2FA kaliti formada qolmasin
       toast.success("Saqlandi");
       navigate("/vault");
     } catch (e) {
@@ -230,7 +305,7 @@ export function EntryForm() {
                 className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 text-sm text-muted-foreground"
               >
                 <Cpu className="size-4 shrink-0" />
-                <span className="overflow-hidden text-ellipsis whitespace-nowrap">Qurilmada yaratiladi · 20 belgi</span>
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">Qurilmada yaratiladi · {describeGenerator(gen)}</span>
               </div>
             ) : (
               <Field
@@ -243,6 +318,103 @@ export function EntryForm() {
                   placeholder={editing ? "Yangi parol (ixtiyoriy)" : "Parolni kiriting"}
                   aria-invalid={!!errors.password} {...form.register("password")} />
               </Field>
+            )}
+          </div>
+
+          {mode === "generate" && !editing && <GeneratorOptions value={gen} onChange={setGen} />}
+
+          <div className="grid gap-1.5 sm:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="note" className="flex items-center gap-1.5 text-sm font-medium leading-none">
+                <NotebookPen className="size-3.5" /> Maxfiy eslatma (ixtiyoriy)
+              </label>
+              {editing && entry?.hasNote && (
+                <Button type="button" variant="ghost" size="sm" disabled={loadingNote || clearNote} onClick={() => void loadNote()}>
+                  {loadingNote ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Qurilmadan yuklash
+                </Button>
+              )}
+            </div>
+            <Textarea
+              id="note"
+              rows={4}
+              readOnly={clearNote} // disabled bo'lsa react-hook-form qiymatni undefined qiladi
+              className={cn(clearNote && "opacity-50")}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Tiklash kodlari, PIN, xavfsizlik savollari…"
+              aria-invalid={!!errors.note}
+              {...form.register("note")}
+            />
+            <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+              <span>
+                {errors.note ? (
+                  <span role="alert" className="text-destructive">
+                    {errors.note.message}
+                  </span>
+                ) : editing && entry?.hasNote ? (
+                  "Bo'sh qoldirsangiz, eslatma o'zgarmaydi. Qurilmada shifrlanadi."
+                ) : (
+                  "Qurilmada shifrlanadi; faqat tugma bilan tasdiqlab ko'riladi."
+                )}
+              </span>
+              <span className={cn("shrink-0 tabular-nums", noteBytes(note) > NOTE_MAX_BYTES && "text-destructive")}>
+                {noteBytes(note)} / {NOTE_MAX_BYTES}
+              </span>
+            </div>
+            {editing && entry?.hasNote && (
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="size-3.5 accent-[var(--color-primary)]" {...form.register("clearNote")} />
+                Eslatmani o'chirish
+              </label>
+            )}
+          </div>
+
+          <div className="grid gap-1.5 sm:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="totp" className="flex items-center gap-1.5 text-sm font-medium leading-none">
+                <KeyRound className="size-3.5" /> 2FA kaliti (TOTP) (ixtiyoriy)
+              </label>
+              {totpInstalled && !replacingTotp && !clearTotp && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setReplacingTotp(true)}>
+                  Almashtirish
+                </Button>
+              )}
+            </div>
+            {showTotpInput ? (
+              <Input
+                id="totp"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="base32 kalit yoki otpauth://totp/… havolasi"
+                aria-invalid={!!errors.totp}
+                {...form.register("totp")}
+              />
+            ) : (
+              <div className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 text-sm text-muted-foreground">
+                <ShieldCheck className="size-4 shrink-0" />
+                <span>{clearTotp ? "Saqlashda o'chiriladi" : "O'rnatilgan"}</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {errors.totp ? (
+                <span role="alert" className="text-destructive">
+                  {errors.totp.message}
+                </span>
+              ) : (
+                "Qurilmada shifrlanadi; kod har safar tugma bilan tasdiqlab olinadi. Faqat SHA1, 6 raqam, 30 soniya."
+              )}
+            </p>
+            {totpInstalled && (
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-[var(--color-primary)]"
+                  {...form.register("clearTotp", {
+                    onChange: (e: { target: { checked: boolean } }) => e.target.checked && setReplacingTotp(false),
+                  })}
+                />
+                2FA kalitini o'chirish
+              </label>
             )}
           </div>
         </CardContent>

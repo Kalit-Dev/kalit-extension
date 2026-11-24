@@ -63,3 +63,57 @@ export function setValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+// ── v0.9: 2FA (OTP) maydonlari ────────────────────────────────────────────────
+const OTP_HINT = /(^|[^a-z])(otp|totp|2fa|mfa)([^a-z]|$)|one[-_ ]?time|verification[-_ ]?code|(auth|authenticator|security)[-_ ]?code|код/i;
+const OTP_TYPES = new Set(["text", "tel", "number", ""]);
+
+const usable = (el: HTMLInputElement) =>
+  OTP_TYPES.has(el.type) && isVisible(el) && !el.disabled && !el.readOnly;
+
+const hintOf = (el: HTMLInputElement) =>
+  `${el.name} ${el.id} ${el.placeholder} ${el.getAttribute("aria-label") ?? ""}`;
+
+/** Bitta maydonli OTP: autocomplete="one-time-code" yoki nom/id/placeholder bo'yicha, maxlength 6..8 (yoki yo'q). */
+function isSingleOtp(el: HTMLInputElement): boolean {
+  if (!usable(el) || el.maxLength === 1) return false;
+  if (/one-time-code/.test(el.autocomplete)) return true;
+  const lengthOk = el.maxLength < 0 || (el.maxLength >= 6 && el.maxLength <= 8);
+  return lengthOk && OTP_HINT.test(hintOf(el));
+}
+
+/** 6 ta bir belgili maydon (har biri maxlength=1) — eng yaqin umumiy konteynerda aynan 6 ta. */
+function splitOtpGroup(el: HTMLInputElement): HTMLInputElement[] | null {
+  if (el.maxLength !== 1 || !usable(el)) return null;
+  let box: Element | null = el.parentElement;
+  for (let depth = 0; box && depth < 4; depth++, box = box.parentElement) {
+    const boxes = [...box.querySelectorAll<HTMLInputElement>("input")].filter((i) => i.maxLength === 1 && usable(i));
+    if (boxes.length < 6) continue;
+    return boxes.length === 6 && boxes.includes(el) ? boxes : null;
+  }
+  return null;
+}
+
+/** `el` OTP maydonmi (yoki 6 bo'lakli OTP'ning bir bo'lagimi)? Parol maydoni hech qachon emas. */
+export function isOtpField(el: Element): el is HTMLInputElement {
+  return el instanceof HTMLInputElement && (isSingleOtp(el) || splitOtpGroup(el) !== null);
+}
+
+/** `anchor` bilan bog'liq OTP maydon(lar)i; topilmasa sahifadagi birinchi bitta maydonli OTP. */
+export function findOtpFields(anchor: HTMLInputElement | null, scope: ParentNode = document): HTMLInputElement[] {
+  if (anchor) {
+    if (isSingleOtp(anchor)) return [anchor];
+    const group = splitOtpGroup(anchor);
+    if (group) return group;
+  }
+  const single = [...scope.querySelectorAll<HTMLInputElement>("input")].find(isSingleOtp);
+  return single ? [single] : [];
+}
+
+/** Kodni to'ldiradi: bitta maydonga to'liq, bo'lakli bo'lsa har biriga bittadan belgi. */
+export function fillOtp(fields: HTMLInputElement[], code: string): boolean {
+  if (fields.length === 0) return false;
+  if (fields.length === 1) setValue(fields[0], code);
+  else fields.forEach((f, i) => setValue(f, code[i] ?? ""));
+  return true;
+}

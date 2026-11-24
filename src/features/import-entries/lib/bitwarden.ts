@@ -1,4 +1,6 @@
+import { bytesToBase64 } from "@/shared/api/device/backup";
 import { siteOf, toOrigin } from "@/shared/lib/domain";
+import { parseTotpInput, TotpInputError } from "@/shared/lib/totp";
 
 /** Import manbasi (Bitwarden JSON, CSV) dan qurilmaga qo'shiladigan yozuvlar. Parollar faqat shu obyektlarda. */
 export interface ImportItem {
@@ -7,6 +9,8 @@ export interface ImportItem {
   username: string;
   password: string;
   title?: string;
+  /** v0.9: 2FA urug'i (base64, 10..64 bayt) — faqat SHA1/6/30 bo'lsa. */
+  totp?: string;
 }
 export interface Skipped {
   name: string;
@@ -18,11 +22,14 @@ export interface NoUrlItem {
   username: string;
   password: string;
   guessedUrl?: string;
+  totp?: string;
 }
 export interface ParsedExport {
   items: ImportItem[];
   noUrl: NoUrlItem[];
   skipped: Skipped[];
+  /** 2FA kaliti bor, lekin qurilma qo'llamaydigan (SHA1/6/30 emas yoki yaroqsiz) yozuvlar: 2FA'siz import qilinadi. */
+  totpDropped?: number;
 }
 
 // Firmware limitlari (lib/kalit_core/vault.h): title<=64, password<=512, username<=256, site+username+title<=160 bayt.
@@ -41,6 +48,8 @@ export interface RawLogin {
   uris: string[];
   username: string;
   password: string;
+  /** Bitwarden `login.totp`: otpauth:// havola yoki base32. */
+  totp?: string;
 }
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -75,10 +84,20 @@ export function toImportItems(records: RawLogin[]): ParsedExport {
   const noUrl: NoUrlItem[] = [];
   const skipped: Skipped[] = [];
   const seen = new Set<string>();
+  let totpDropped = 0;
 
   for (const r of records) {
     const name = r.name || "(nomsiz)";
     const { username, password } = r;
+    let totp: string | undefined;
+    if (r.totp?.trim()) {
+      try {
+        totp = bytesToBase64(parseTotpInput(r.totp));
+      } catch (e) {
+        if (!(e instanceof TotpInputError)) throw e;
+        totpDropped++; // yozuv 2FA'siz import qilinadi
+      }
+    }
 
     let origin: string | null = null;
     for (const u of r.uris) {
@@ -94,7 +113,7 @@ export function toImportItems(records: RawLogin[]): ParsedExport {
         skipped.push({ name, reason: "Login juda uzun" });
       } else {
         const guessedUrl = guessUrl(name);
-        noUrl.push({ name, username, password, ...(guessedUrl ? { guessedUrl } : {}) });
+        noUrl.push({ name, username, password, ...(guessedUrl ? { guessedUrl } : {}), ...(totp ? { totp } : {}) });
       }
       continue;
     }
@@ -133,9 +152,9 @@ export function toImportItems(records: RawLogin[]): ParsedExport {
       continue;
     }
     seen.add(key);
-    items.push({ origin, site, username, password, ...(title ? { title } : {}) });
+    items.push({ origin, site, username, password, ...(title ? { title } : {}), ...(totp ? { totp } : {}) });
   }
-  return { items, noUrl, skipped };
+  return { items, noUrl, skipped, ...(totpDropped > 0 ? { totpDropped } : {}) };
 }
 
 /** Bitwarden JSON eksporti: faqat login (type 1). Shifrlangan eksport, noto'g'ri JSON — BitwardenFormatError. */
@@ -157,9 +176,9 @@ export function parseBitwardenExport(text: string): ParsedExport {
   const records: RawLogin[] = [];
   for (const raw of root.items as Record<string, unknown>[]) {
     if (!raw || typeof raw !== "object" || raw.type !== 1) continue; // karta, note, identity — o'tkazib yuboriladi
-    const login = (raw.login ?? {}) as { username?: unknown; password?: unknown; uris?: unknown };
+    const login = (raw.login ?? {}) as { username?: unknown; password?: unknown; uris?: unknown; totp?: unknown };
     const uris = Array.isArray(login.uris) ? (login.uris as { uri?: unknown }[]).map((u) => str(u?.uri)) : [];
-    records.push({ name: str(raw.name), uris, username: str(login.username), password: str(login.password) });
+    records.push({ name: str(raw.name), uris, username: str(login.username), password: str(login.password), totp: str(login.totp) });
   }
   return toImportItems(records);
 }

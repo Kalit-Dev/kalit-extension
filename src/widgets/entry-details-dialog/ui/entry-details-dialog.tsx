@@ -1,15 +1,17 @@
-import { Check, Copy, Eye, EyeOff, Loader2, Pencil, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, NotebookPen, Pencil, ShieldCheck, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { EntryAvatar, isSecret } from "@/entities/entry";
-import { revealPassword } from "@/features/reveal-credential";
+import { EntryAvatar, formatUpdatedAt, isSecret, isStalePassword } from "@/entities/entry";
+import { revealNote, revealPassword, revealTotp } from "@/features/reveal-credential";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import type { EntryMeta } from "@/shared/api/device/protocol";
 import { describeError } from "@/shared/lib/errors";
+import { groupTotp } from "@/shared/lib/totp";
 
 const SHOW_MS = 20_000;
+const NOTE_SHOW_MS = 60_000; // eslatma uzunroq o'qiladi
 
 /** Yozuv tafsilotlari. Parol faqat "Ko'rsatish" bosilib, qurilmada tugma bilan tasdiqlangandan keyin olinadi. */
 export function EntryDetailsDialog({
@@ -22,12 +24,20 @@ export function EntryDetailsDialog({
   onDelete: (e: EntryMeta) => Promise<void>;
 }) {
   const secret = isSecret(entry);
+  const stale = isStalePassword(entry);
   const [password, setPassword] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
   const [busy, setBusy] = useState(false);
   const [left, setLeft] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [copied, setCopied] = useState<"login" | "parol" | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [totp, setTotp] = useState<{ code: string; validFor: number; period: number; end: number } | null>(null);
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [totpLeft, setTotpLeft] = useState(0);
+  const totpTimer = useRef<ReturnType<typeof setInterval>>(undefined);
+  const [copied, setCopied] = useState<"login" | "parol" | "eslatma" | "2fa" | null>(null);
   const alive = useRef(true);
   const timer = useRef<ReturnType<typeof setInterval>>(undefined);
 
@@ -43,6 +53,8 @@ export function EntryDetailsDialog({
     return () => {
       alive.current = false;
       clearInterval(timer.current); // yopilganda parol state bilan birga xotiradan o'chadi
+      clearTimeout(noteTimer.current);
+      clearInterval(totpTimer.current); // kod ham state bilan birga o'chadi
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
@@ -69,7 +81,45 @@ export function EntryDetailsDialog({
     }
   };
 
-  const copy = async (text: string, what: "login" | "parol") => {
+  const showNote = async () => {
+    setNoteBusy(true);
+    try {
+      const text = await revealNote(entry); // qurilmada tugma bosiladi
+      if (!alive.current) return;
+      setNote(text);
+      clearTimeout(noteTimer.current);
+      noteTimer.current = setTimeout(() => alive.current && setNote(null), NOTE_SHOW_MS);
+    } catch (err) {
+      if (alive.current) toast.error(describeError(err));
+    } finally {
+      if (alive.current) setNoteBusy(false);
+    }
+  };
+
+  const showTotp = async () => {
+    setTotpBusy(true);
+    try {
+      const res = await revealTotp(entry); // qurilmada tugma bosiladi
+      if (!alive.current) return;
+      const end = Date.now() + res.validFor * 1000;
+      setTotp({ ...res, end });
+      setTotpLeft(res.validFor * 1000);
+      clearInterval(totpTimer.current);
+      totpTimer.current = setInterval(() => {
+        const rest = end - Date.now();
+        if (rest <= 0) {
+          clearInterval(totpTimer.current);
+          setTotp(null); // muddati tugagan kod tozalanadi
+        } else setTotpLeft(rest);
+      }, 250);
+    } catch (err) {
+      if (alive.current) toast.error(describeError(err));
+    } finally {
+      if (alive.current) setTotpBusy(false);
+    }
+  };
+
+  const copy = async (text: string, what: "login" | "parol" | "eslatma" | "2fa") => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(what);
@@ -151,6 +201,77 @@ export function EntryDetailsDialog({
             ) : (
               <span className="font-mono tracking-widest text-muted-foreground">••••••••••</span>
             )}
+          </Row>
+
+          {entry.hasTotp && (
+            <Row
+              label="2FA kodi"
+              action={
+                totp ? (
+                  <Button variant="outline" size="icon-sm" aria-label="Kodni nusxalash" onClick={() => void copy(totp.code, "2fa")}>
+                    {copied === "2fa" ? <Check className="text-success" /> : <Copy />}
+                  </Button>
+                ) : null
+              }
+            >
+              {totp ? (
+                <div className="grid gap-1.5">
+                  <code className="font-mono text-2xl font-semibold tracking-widest">{groupTotp(totp.code)}</code>
+                  <div className="h-0.5 overflow-hidden rounded bg-muted">
+                    <div
+                      className="h-full bg-primary/60 transition-[width] duration-200 ease-linear"
+                      style={{ width: `${(totpLeft / (totp.period * 1000)) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">{Math.ceil(totpLeft / 1000)} soniya amal qiladi</span>
+                </div>
+              ) : totpBusy ? (
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> Qurilmada tasdiqlang…
+                </span>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => void showTotp()}>
+                  <KeyRound /> Kodni ko'rsatish
+                </Button>
+              )}
+            </Row>
+          )}
+
+          {entry.hasNote && (
+            <Row label="Maxfiy eslatma">
+              {note !== null ? (
+                <div className="grid gap-2">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-sm">{note}</pre>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => void copy(note, "eslatma")}>
+                      {copied === "eslatma" ? <Check className="text-success" /> : <Copy />} Nusxalash
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setNote(null)}>
+                      <EyeOff /> Yashirish
+                    </Button>
+                  </div>
+                </div>
+              ) : noteBusy ? (
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> Qurilmada tasdiqlang…
+                </span>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => void showNote()}>
+                  <NotebookPen /> Eslatmani ko'rsatish
+                </Button>
+              )}
+            </Row>
+          )}
+
+          <Row label="Oxirgi o'zgargan">
+            <span className="flex flex-wrap items-center gap-2">
+              {formatUpdatedAt(entry.updatedAt)}
+              {stale && (
+                <span className="inline-flex items-center gap-1 text-xs text-warning">
+                  <Clock className="size-3" /> bu parol 1 yildan eski — almashtirishni o'ylab ko'ring
+                </span>
+              )}
+            </span>
           </Row>
 
           {password === null && !busy && (

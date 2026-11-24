@@ -10,9 +10,9 @@ import { closeOverlay, hub } from "@/shared/api/overlay-bridge";
 
 type View =
   | { kind: "loading" }
-  | { kind: "ask"; site: string; username: string }
-  | { kind: "waiting"; site: string; username: string; expiresAt: number }
-  | { kind: "saved" }
+  | { kind: "ask"; site: string; username: string; update: boolean }
+  | { kind: "waiting"; site: string; username: string; update: boolean; expiresAt: number }
+  | { kind: "saved"; update: boolean }
   | { kind: "error"; message: string };
 
 export function SavePrompt() {
@@ -20,7 +20,7 @@ export function SavePrompt() {
 
   useEffect(() => {
     hub<PendingSaveResponse>({ type: "kalit:pending-save" })
-      .then((r) => (r.prompt && r.site && r.username ? setView({ kind: "ask", site: r.site, username: r.username }) : closeOverlay()))
+      .then((r) => (r.prompt && r.site && r.username ? setView({ kind: "ask", site: r.site, username: r.username, update: !!r.update }) : closeOverlay()))
       .catch(() => closeOverlay());
   }, []);
 
@@ -31,7 +31,7 @@ export function SavePrompt() {
     try {
       await hub<HubResult>({ type: "kalit:save-decision", decision });
       if (decision !== "save") return closeOverlay();
-      setView({ kind: "saved" });
+      setView({ kind: "saved", update: view.kind === "waiting" && view.update });
       setTimeout(closeOverlay, 1200);
     } catch (e) {
       if (decision !== "save") return closeOverlay();
@@ -49,8 +49,9 @@ export function SavePrompt() {
           <div className="flex items-start gap-2.5">
             <Logo className="mt-0.5" />
             <div className="grid min-w-0 flex-1">
-              <span className="text-sm font-medium">Kalit'ga saqlansinmi?</span>
+              <span className="text-sm font-medium">{view.update ? "Yangilansinmi?" : "Kalit'ga saqlansinmi?"}</span>
               <span className="truncate text-xs text-muted-foreground">
+                {view.update ? "Parol o'zgargan bo'lishi mumkin · " : ""}
                 {view.site} · {view.username}
               </span>
             </div>
@@ -76,7 +77,7 @@ export function SavePrompt() {
               Hozir emas
             </Button>
             <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => decide("save")}>
-              Saqlash
+              {view.update ? "Yangilash" : "Saqlash"}
             </Button>
           </div>
         </div>
@@ -89,7 +90,7 @@ export function SavePrompt() {
           <span className="grid size-6 place-items-center rounded-full bg-success/15 text-success">
             <Check className="size-3.5" />
           </span>
-          Qurilmaga saqlandi
+          {view.update ? "Qurilmada yangilandi" : "Qurilmaga saqlandi"}
         </div>
       )}
 

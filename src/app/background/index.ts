@@ -1,5 +1,5 @@
 import { KV_KEYS, type KvRequest } from "@/shared/lib/kv";
-import type { ApplyMessage } from "@/shared/api/messages";
+import type { ApplyMessage, ApplyTotpMessage } from "@/shared/api/messages";
 import type { BackgroundRequest, EngineRequest, TabRemovedEvent } from "@/shared/api/engine/protocol";
 
 // Background service worker: engine (offscreen hujjat) ni tirik tutadi
@@ -52,6 +52,15 @@ chrome.runtime.onMessage.addListener((raw: BackgroundRequest | KvRequest, sender
     case "bg:apply": {
       if (!fromOffscreen(sender)) return;
       const msg: ApplyMessage = { type: "kalit:apply", username: raw.username, password: raw.password };
+      chrome.tabs.sendMessage(raw.tabId, msg, { frameId: 0 }).then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false }),
+      );
+      return true;
+    }
+    case "bg:apply-totp": {
+      if (!fromOffscreen(sender)) return;
+      const msg: ApplyTotpMessage = { type: "kalit:apply-totp", code: raw.code };
       chrome.tabs.sendMessage(raw.tabId, msg, { frameId: 0 }).then(
         () => sendResponse({ ok: true }),
         () => sendResponse({ ok: false }),

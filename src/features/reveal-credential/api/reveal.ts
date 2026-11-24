@@ -1,5 +1,16 @@
 import { useDevice } from "@/entities/device";
 import { isSecret } from "@/entities/entry";
+import type { TotpCode } from "@/shared/api/device/protocol";
+
+/** v0.8: maxfiy eslatmani qurilmadan olish (qurilmada tugma bilan tasdiqlanadi). */
+export async function revealNote(entry: { id: string }): Promise<string> {
+  return useDevice.getState().getNote(entry.id);
+}
+
+/** v0.9: 2FA kodi (qurilmada tugma bilan tasdiqlanadi). Natijani saqlamang: validFor tugagach tashlang. */
+export async function revealTotp(entry: { id: string }): Promise<TotpCode> {
+  return useDevice.getState().getTotp(entry.id);
+}
 
 /** Parolni qurilmadan olish (qurilmada tugma bilan tasdiqlanadi). Veb yozuv: domen tekshiruvi qurilmada bajariladi. */
 export async function revealPassword(entry: {

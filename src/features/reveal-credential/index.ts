@@ -1,1 +1,1 @@
-export { revealPassword } from "./api/reveal";
+export { revealNote, revealPassword, revealTotp } from "./api/reveal";

@@ -221,3 +221,43 @@ describe("device store: v0.6 encrypted backup", () => {
     expect(await code(useDevice.getState().exportBackup(PASS))).toBe("LOCKED");
   });
 });
+
+describe("device store: v0.7 device auto-lock and paging", () => {
+  async function unlockedStore(device: MockTransport) {
+    plugged.current = device;
+    await useDevice.getState().connect("usb");
+    autoPress(device);
+    await useDevice.getState().pair();
+    await useDevice.getState().onboard(MASTER);
+    await useDevice.getState().refresh();
+  }
+
+  it("a LOCKED event from the device moves the store to locked and drops cached entries", async () => {
+    const device = new MockTransport({ fast: true });
+    await unlockedStore(device);
+    await useDevice.getState().addEntry({ origin: "https://example.com", username: "ali", password: "pw" });
+    expect(useDevice.getState().phase).toBe("unlocked");
+    expect(useDevice.getState().entries).toHaveLength(1);
+
+    device.triggerAutoLock();
+    await vi.waitFor(() => expect(useDevice.getState().phase).toBe("locked"));
+    expect(useDevice.getState().entries).toEqual([]);
+    expect(useDevice.getState().pending).toBeNull();
+    expect(useDevice.getState().status?.state).toBe("LOCKED");
+
+    await useDevice.getState().unlock(MASTER); // unlock form works again
+    expect(useDevice.getState().phase).toBe("unlocked");
+    expect(useDevice.getState().entries).toHaveLength(1);
+  });
+
+  it("refresh returns the complete list across LIST pages (40 entries > 16 per page)", async () => {
+    const device = new MockTransport({ fast: true });
+    await unlockedStore(device);
+    for (let i = 0; i < 40; i++) {
+      await useDevice.getState().addEntry({ origin: `https://s${i}.example.com`, username: "u", password: "pw" });
+    }
+    await useDevice.getState().refresh();
+    expect(useDevice.getState().entries).toHaveLength(40);
+    expect(new Set(useDevice.getState().entries.map((e) => e.id)).size).toBe(40);
+  });
+});
