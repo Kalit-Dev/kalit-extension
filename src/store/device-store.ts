@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { DeviceError, type ClientErrorCode } from "@/device/client";
-import type { AddEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
+import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
 import type { TransportKind } from "@/device/transport";
 import {
   STATE_EVENT,
@@ -28,9 +28,12 @@ interface DeviceStore extends EngineSnapshot {
   unlock(masterPassword: string): Promise<void>;
   lock(): Promise<void>;
   getCredential(id: string, origin: string): Promise<Credential>;
-  addEntry(params: Omit<AddEntryParams, "site">): Promise<EntryMeta>;
+  addEntry(params: Omit<AddWebEntryParams, "site"> | AddSecretEntryParams): Promise<EntryMeta>;
+  revealSecret(id: string): Promise<{ username: string; password: string }>;
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
+  importBegin(count: number): Promise<void>;
+  importEnd(): Promise<number>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
@@ -86,9 +89,12 @@ export const useDevice = create<DeviceStore>()((set) => {
     unlock: (masterPassword) => call("unlock", masterPassword),
     lock: () => call("lock"),
     getCredential: (id, origin) => call<Credential>("getCredential", id, origin),
+    revealSecret: (id) => call<{ username: string; password: string }>("revealSecret", id),
     addEntry: (params) => call<EntryMeta>("addEntry", params),
     forgetDevice: () => call("forgetDevice"),
     deleteEntry: (id) => call("deleteEntry", id),
+    importBegin: (count) => call("importBegin", count),
+    importEnd: () => call<number>("importEnd"),
     changeMaster: (oldPassword, newPassword) => call("changeMaster", oldPassword, newPassword),
     updateEntry: (id, patch) => call<EntryMeta>("updateEntry", id, patch),
     listHosts: () => call<HostInfo[]>("listHosts"),

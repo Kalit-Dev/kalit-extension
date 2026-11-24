@@ -6,7 +6,7 @@ const MESSAGES: Record<string, string> = {
   BAD_PASSWORD: "Master parol noto'g'ri",
   WIPED: "Juda ko'p xato urinish — qurilma tozalandi",
   NOT_FOUND: "Yozuv topilmadi",
-  ORIGIN_MISMATCH: "Bu yozuv ushbu saytga tegishli emas",
+  ORIGIN_MISMATCH: "Bu yozuv ushbu saytga tegishli emas (yoki u veb-saytga bog'lanmagan sir)",
   RATE_LIMITED: "Juda ko'p so'rov — biroz kuting",
   NOT_TRUSTED: "Bu kompyuter qurilmaga ulanmagan",
   INVALID_STATE: "Qurilma bu amalga tayyor emas",

@@ -39,6 +39,30 @@ describe("DeviceClient timeouts", () => {
     await expect(p).resolves.toEqual({});
   });
 
+  it("gives IMPORT_BEGIN the confirm window; IMPORT_END the plain one", async () => {
+    vi.useFakeTimers();
+    const t = fakeTransport();
+    const client = new DeviceClient(t);
+    const begin = client.call("IMPORT_BEGIN", { count: 3 });
+    await vi.advanceTimersByTimeAsync(11_000);
+    t.reply({ id: 1, ok: true, result: {} });
+    await expect(begin).resolves.toEqual({});
+    const end = client.call("IMPORT_END", {});
+    const assertion = expect(end).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(8_001);
+    await assertion;
+  });
+
+  it("validates IMPORT_BEGIN count and IMPORT_END result", async () => {
+    const t = fakeTransport();
+    const client = new DeviceClient(t);
+    await expect(client.call("IMPORT_BEGIN", { count: 0 })).rejects.toThrow();
+    await expect(client.call("IMPORT_BEGIN", { count: 33 })).rejects.toThrow();
+    const end = client.call("IMPORT_END", {});
+    t.reply({ id: 3, ok: true, result: { added: 2 } }); // 1-2: client-side rad etilgan chaqiruvlar ham id sarflaydi
+    await expect(end).resolves.toEqual({ added: 2 });
+  });
+
   it("validates LIST_HOSTS results", async () => {
     const t = fakeTransport();
     const client = new DeviceClient(t);
@@ -57,5 +81,30 @@ describe("DeviceClient timeouts", () => {
     const assertion = expect(p).rejects.toMatchObject({ code: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(8_001);
     await assertion;
+  });
+});
+
+describe("protocol v0.4 parsing", () => {
+  it("EntryMeta defaults kind to web for older firmware and keeps secret", async () => {
+    const { EntryMeta } = await import("./protocol");
+    expect(EntryMeta.parse({ id: "a", site: "x.com", username: "u", updatedAt: 1 }).kind).toBe("web");
+    expect(EntryMeta.parse({ id: "a", kind: "secret", site: "", username: "", title: "t", updatedAt: 1 }).kind).toBe("secret");
+  });
+
+  it("sends secret ADD_ENTRY and REVEAL_SECRET params and parses the reply", async () => {
+    const sent: unknown[] = [];
+    const t = fakeTransport();
+    t.send = async (m) => void sent.push(m);
+    const client = new DeviceClient(t);
+    const p = client.call("REVEAL_SECRET", { id: "e1" });
+    t.reply({ id: 1, ok: true, result: { username: "u", password: "p" } });
+    await expect(p).resolves.toEqual({ username: "u", password: "p" });
+    const q = client.call("ADD_ENTRY", { kind: "secret", title: "T", generateLength: 20 });
+    t.reply({ id: 2, ok: true, result: { entry: { id: "x", kind: "secret", site: "", username: "", title: "T", updatedAt: 1 } } });
+    expect((await q).entry.kind).toBe("secret");
+    expect(sent).toEqual([
+      { id: 1, cmd: "REVEAL_SECRET", params: { id: "e1" } },
+      { id: 2, cmd: "ADD_ENTRY", params: { kind: "secret", title: "T", generateLength: 20 } },
+    ]);
   });
 });

@@ -87,10 +87,10 @@ const code = async (p: Promise<unknown>) => {
 describe.skipIf(!available)("interop with native firmware", () => {
   it("handshakes, pairs, onboards, stores and fills a credential", async () => {
     const { raw, secure, client } = await start("accept");
-    expect(secure.deviceInfo).toEqual({ fw: "0.2.0", name: "Kalit" });
+    expect(secure.deviceInfo).toEqual({ fw: "0.4.0", name: "Kalit" });
 
     const status = await client.call("GET_STATUS", {});
-    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.2.0" });
+    expect(status).toMatchObject({ state: "FACTORY", hostTrusted: false, firmware: "0.4.0" });
     expect(await code(client.call("LIST", {}))).toBe("NOT_TRUSTED");
 
     await client.call("PAIR_HOST", {});
@@ -153,6 +153,62 @@ describe.skipIf(!available)("interop with native firmware", () => {
     expect(hosts[0]).toMatchObject({ current: true });
     expect(hosts[0]!.fp).toMatch(/^[0-9a-f]{16}$/);
     await client.call("REVOKE_HOST", { slot: hosts[0]!.slot });
+  }, 30_000);
+
+  it("v0.4 secret entries: add, list, reveal, get_credential mismatch, update, delete", async () => {
+    const { client } = await start("accept");
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    const { entry } = await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "home", password: "s3cret-pw" });
+    expect(entry).toMatchObject({ kind: "secret", site: "", title: "Wi-Fi", username: "home" });
+    const web = await client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw" });
+    expect(web.entry.kind).toBe("web");
+    expect((await client.call("LIST", {})).entries.map((e) => e.kind).sort()).toEqual(["secret", "web"]);
+
+    expect(await client.call("REVEAL_SECRET", { id: entry.id })).toEqual({ username: "home", password: "s3cret-pw" });
+    expect(await code(client.call("REVEAL_SECRET", { id: web.entry.id }))).toBe("INVALID_STATE");
+    expect(await code(client.call("REVEAL_SECRET", { id: "nope" }))).toBe("NOT_FOUND");
+    expect(await code(client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://example.com" }))).toBe("ORIGIN_MISMATCH");
+
+    const upd = await client.call("UPDATE_ENTRY", { id: entry.id, title: "Office", password: "new-pw" });
+    expect(upd.entry).toMatchObject({ kind: "secret", title: "Office" });
+    expect((await client.call("REVEAL_SECRET", { id: entry.id })).password).toBe("new-pw");
+    await client.call("DELETE_ENTRY", { id: entry.id });
+    expect((await client.call("LIST", {})).entries).toHaveLength(1);
+  }, 30_000);
+
+  it("v0.5 import session: one confirmation, then adds without buttons", async () => {
+    const { client } = await start("accept");
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    const seen: string[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data.action));
+
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    expect(seen).toEqual(["import"]);
+    await client.call("ADD_ENTRY", { origin: "https://a.example.com", site: "a.example.com", username: "u", password: "pw" });
+    expect(await code(client.call("ADD_ENTRY", { origin: "https://evil.com", site: "example.com", username: "u", password: "p" }))).toBe(
+      "ORIGIN_MISMATCH",
+    );
+    await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", password: "pw" });
+    expect(seen).toEqual(["import"]); // count tugadi: sessiya yopilgan
+    await client.call("ADD_ENTRY", { origin: "https://b.example.com", site: "b.example.com", username: "u", password: "pw" });
+    expect(seen).toEqual(["import", "save"]);
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 0 });
+
+    // IMPORT_END erta tugatadi va qo'shilganlar sonini qaytaradi
+    await client.call("IMPORT_BEGIN", { count: 5 });
+    await client.call("ADD_ENTRY", { origin: "https://c.example.com", site: "c.example.com", username: "u", password: "pw" });
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 1 });
+    expect(await code(client.call("IMPORT_BEGIN", { count: 31 }))).toBe("INVALID_STATE"); // 4 ta band, 28 bo'sh
+
+    // LOCK sessiyani tugatadi; boshqa buyruqlar tugma talab qiladi
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    await client.call("LOCK", {});
+    await client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    const before = seen.length;
+    await client.call("ADD_ENTRY", { origin: "https://d.example.com", site: "d.example.com", username: "u", password: "pw" });
+    expect(seen.slice(before)).toEqual(["save"]);
   }, 30_000);
 
   it("surfaces CONFIRM_PENDING for the pairing code and honours a rejection on the device", async () => {

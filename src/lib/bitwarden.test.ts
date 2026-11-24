@@ -33,7 +33,24 @@ describe("parseBitwardenExport", () => {
       ]),
     );
     expect(items).toHaveLength(0);
-    expect(skipped.map((s) => s.name)).toEqual(["no-uri", "no-user", "no-pass"]);
+    expect(skipped.map((s) => s.name)).toEqual(["no-user", "no-pass"]);
+  });
+
+  it("returns url-less records as noUrl, guessing the url only from domain-like names", () => {
+    const nu = (name: string, o: Record<string, unknown> = {}) =>
+      login({ name, login: { username: "u", password: "p", uris: [], ...o } });
+    const { items, noUrl, skipped } = parseBitwardenExport(
+      doc([nu("github.com"), nu("www.npmjs.com"), nu("GitHub"), nu("Wi-Fi uy"), nu("wifi", { username: "" }), nu("empty", { password: "" })]),
+    );
+    expect(items).toHaveLength(0);
+    expect(skipped).toEqual([{ name: "empty", reason: "Parol bo'sh" }]);
+    expect(noUrl).toEqual([
+      { name: "github.com", username: "u", password: "p", guessedUrl: "https://github.com" },
+      { name: "www.npmjs.com", username: "u", password: "p", guessedUrl: "https://www.npmjs.com" },
+      { name: "GitHub", username: "u", password: "p" },
+      { name: "Wi-Fi uy", username: "u", password: "p" },
+      { name: "wifi", username: "", password: "p" },
+    ]);
   });
 
   it("drops duplicates of the same site and username", () => {

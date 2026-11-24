@@ -1,6 +1,6 @@
 import { siteOf, toOrigin } from "@/lib/domain";
 
-/** Bitwarden (unencrypted) JSON eksportidan qurilmaga qo'shiladigan yozuvlar. Parollar faqat shu obyektlarda. */
+/** Import manbasi (Bitwarden JSON, CSV) dan qurilmaga qo'shiladigan yozuvlar. Parollar faqat shu obyektlarda. */
 export interface ImportItem {
   origin: string;
   site: string;
@@ -12,8 +12,16 @@ export interface Skipped {
   name: string;
   reason: string;
 }
+/** Veb manzili yo'q yozuv: foydalanuvchi veb saytga yoki maxfiy yozuvga aylantirishni tanlaydi. */
+export interface NoUrlItem {
+  name: string;
+  username: string;
+  password: string;
+  guessedUrl?: string;
+}
 export interface ParsedExport {
   items: ImportItem[];
+  noUrl: NoUrlItem[];
   skipped: Skipped[];
 }
 
@@ -27,9 +35,17 @@ const bytes = (s: string) => enc.encode(s).length;
 
 export class BitwardenFormatError extends Error {}
 
+/** Manbadan mustaqil, normallashtirilgan yozuv. */
+export interface RawLogin {
+  name: string;
+  uris: string[];
+  username: string;
+  password: string;
+}
+
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-function truncateBytes(s: string, max: number): string {
+export function truncateBytes(s: string, max: number): string {
   let out = "";
   for (const ch of s) {
     if (bytes(out + ch) > max) break;
@@ -38,41 +54,48 @@ function truncateBytes(s: string, max: number): string {
   return out;
 }
 
-/** Faqat login (type 1) yozuvlari. Shifrlangan eksport, noto'g'ri JSON — BitwardenFormatError. */
-export function parseBitwardenExport(text: string): ParsedExport {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new BitwardenFormatError("Fayl JSON emas");
-  }
-  const root = data as { encrypted?: unknown; items?: unknown };
-  if (!root || typeof root !== "object" || !Array.isArray(root.items)) {
-    throw new BitwardenFormatError("Bitwarden eksporti emas (items topilmadi)");
-  }
-  if (root.encrypted === true) {
-    throw new BitwardenFormatError("Eksport shifrlangan. Bitwarden'dan shifrlanmagan (.json) eksport qiling");
-  }
+/** Maxfiy yozuv nomi: <=64 bayt, nom+login <=160 bayt. */
+export function secretTitle(name: string, username: string): string {
+  const room = Math.max(0, META_BUDGET - bytes(username));
+  return truncateBytes(truncateBytes(name, MAX_TITLE), room);
+}
 
+/** Yozuv nomi o'zi domenga o'xshasa (github.com, www.npmjs.com) — origin; brend nomlaridan taxmin qilinmaydi. */
+function guessUrl(name: string): string | undefined {
+  if (/\s/.test(name) || !name.includes(".")) return undefined;
+  const origin = toOrigin(name);
+  if (!origin) return undefined;
+  const site = siteOf(origin);
+  return site && site.length >= 3 && site.includes(".") ? origin : undefined;
+}
+
+/** Normallashtirilgan yozuvlarni qurilma qoidalariga solish; yaroqsizlari sababi bilan o'tkazib yuboriladi. */
+export function toImportItems(records: RawLogin[]): ParsedExport {
   const items: ImportItem[] = [];
+  const noUrl: NoUrlItem[] = [];
   const skipped: Skipped[] = [];
   const seen = new Set<string>();
 
-  for (const raw of root.items as Record<string, unknown>[]) {
-    if (!raw || typeof raw !== "object" || raw.type !== 1) continue; // karta, note, identity — o'tkazib yuboriladi
-    const name = str(raw.name) || "(nomsiz)";
-    const login = (raw.login ?? {}) as { username?: unknown; password?: unknown; uris?: unknown };
-    const username = str(login.username);
-    const password = str(login.password);
+  for (const r of records) {
+    const name = r.name || "(nomsiz)";
+    const { username, password } = r;
 
-    const uris = Array.isArray(login.uris) ? (login.uris as { uri?: unknown }[]) : [];
     let origin: string | null = null;
-    for (const u of uris) {
-      origin = toOrigin(str(u?.uri));
+    for (const u of r.uris) {
+      origin = toOrigin(u);
       if (origin) break;
     }
     if (!origin) {
-      skipped.push({ name, reason: "Veb manzil yo'q" });
+      if (!password) {
+        skipped.push({ name, reason: "Parol bo'sh" });
+      } else if (bytes(password) > MAX_PASSWORD) {
+        skipped.push({ name, reason: "Parol juda uzun" });
+      } else if (bytes(username) > MAX_USER || bytes(username) > META_BUDGET) {
+        skipped.push({ name, reason: "Login juda uzun" });
+      } else {
+        const guessedUrl = guessUrl(name);
+        noUrl.push({ name, username, password, ...(guessedUrl ? { guessedUrl } : {}) });
+      }
       continue;
     }
     const site = siteOf(origin);
@@ -97,13 +120,12 @@ export function parseBitwardenExport(text: string): ParsedExport {
       continue;
     }
 
-    let title = truncateBytes(name, MAX_TITLE);
     const room = META_BUDGET - bytes(site) - bytes(username);
     if (room < 0) {
       skipped.push({ name, reason: "Sayt+login 160 baytdan oshadi" });
       continue;
     }
-    title = truncateBytes(title, room);
+    const title = truncateBytes(truncateBytes(name, MAX_TITLE), room);
 
     const key = `${site}\u0000${username}`;
     if (seen.has(key)) {
@@ -113,5 +135,31 @@ export function parseBitwardenExport(text: string): ParsedExport {
     seen.add(key);
     items.push({ origin, site, username, password, ...(title ? { title } : {}) });
   }
-  return { items, skipped };
+  return { items, noUrl, skipped };
+}
+
+/** Bitwarden JSON eksporti: faqat login (type 1). Shifrlangan eksport, noto'g'ri JSON — BitwardenFormatError. */
+export function parseBitwardenExport(text: string): ParsedExport {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new BitwardenFormatError("Fayl JSON emas");
+  }
+  const root = data as { encrypted?: unknown; items?: unknown };
+  if (!root || typeof root !== "object" || !Array.isArray(root.items)) {
+    throw new BitwardenFormatError("Bitwarden eksporti emas (items topilmadi)");
+  }
+  if (root.encrypted === true) {
+    throw new BitwardenFormatError("Eksport shifrlangan. Bitwarden'dan shifrlanmagan (.json) eksport qiling");
+  }
+
+  const records: RawLogin[] = [];
+  for (const raw of root.items as Record<string, unknown>[]) {
+    if (!raw || typeof raw !== "object" || raw.type !== 1) continue; // karta, note, identity — o'tkazib yuboriladi
+    const login = (raw.login ?? {}) as { username?: unknown; password?: unknown; uris?: unknown };
+    const uris = Array.isArray(login.uris) ? (login.uris as { uri?: unknown }[]).map((u) => str(u?.uri)) : [];
+    records.push({ name: str(raw.name), uris, username: str(login.username), password: str(login.password) });
+  }
+  return toImportItems(records);
 }

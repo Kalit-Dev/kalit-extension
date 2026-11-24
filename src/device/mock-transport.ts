@@ -18,7 +18,8 @@ const MAX_ENTRIES = 32;
 /** site+username+title (bayt) yig'indisi: LIST javobi 8 KiB kadrga sig'sin (firmware kMetaBudget bilan bir xil). */
 const META_BUDGET = 160;
 const GUARD_MS = 500;
-const FIRMWARE = "mock-0.1.0";
+const IMPORT_SESSION_MS = 120_000;
+const FIRMWARE = "mock-0.4.0";
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+";
 
 class Fault extends Error {
@@ -77,6 +78,9 @@ export class MockTransport implements RawTransport {
   private hostKey: string | null = null;
   private sas = "";
 
+  /** v0.5 import sessiyasi: `remaining` ta tugmasiz ADD_ENTRY, `deadline` (Date.now) dan keyin tugaydi. */
+  private importSession: { remaining: number; added: number; deadline: number } | null = null;
+
   private pending: ((r: ConfirmResult) => void) | null = null;
   private pendingSince = 0;
 
@@ -92,6 +96,7 @@ export class MockTransport implements RawTransport {
   }
 
   async close(): Promise<void> {
+    this.importSession = null;
     this.pending?.("reject");
     this.closeListeners.forEach((l) => l());
   }
@@ -119,6 +124,7 @@ export class MockTransport implements RawTransport {
   }
 
   private fail() {
+    this.importSession = null;
     this.noise = null;
     this.cipher = null;
     this.pending?.("reject");
@@ -171,6 +177,7 @@ export class MockTransport implements RawTransport {
       if (this.closeAfterResponse) {
         // Joriy host bekor qilindi: javobdan keyin CLOSED hodisasi va kanal yopiladi.
         this.closeAfterResponse = false;
+        this.importSession = null;
         const cipher = this.cipher;
         this.noise = null;
         this.cipher = null;
@@ -236,6 +243,7 @@ export class MockTransport implements RawTransport {
 
       case "LOCK":
         if (this.state === "UNLOCKED") this.state = "LOCKED";
+        this.importSession = null;
         return {};
 
       case "LIST":
@@ -247,6 +255,7 @@ export class MockTransport implements RawTransport {
         const item = this.vault.get(String(p.id));
         if (!item) throw new Fault("NOT_FOUND");
         // Qurilma domenni o'zi tekshiradi — extension'ga ishonmaydi.
+        if (item.meta.kind === "secret") throw new Fault("ORIGIN_MISMATCH");
         const host = originHost(String(p.origin));
         if (!host || !hostMatchesSite(host, item.meta.site)) throw new Fault("ORIGIN_MISMATCH");
         await this.confirm({ action: "fill", site: item.meta.site, username: item.meta.username });
@@ -255,6 +264,7 @@ export class MockTransport implements RawTransport {
 
       case "ADD_ENTRY": {
         this.requireUnlocked();
+        if (p.kind === "secret") return this.addSecret(p);
         const host = originHost(String(p.origin));
         const site = String(p.site);
         if (!host || !siteValid(site, host)) throw new Fault("ORIGIN_MISMATCH");
@@ -263,9 +273,11 @@ export class MockTransport implements RawTransport {
           0,
         );
         if (this.vault.size >= MAX_ENTRIES || metaBytes > META_BUDGET) throw new Fault("INVALID_STATE");
-        await this.confirm({ action: "save", site, username: String(p.username) });
+        const inSession = this.activeSession() !== null;
+        if (!inSession) await this.confirm({ action: "save", site, username: String(p.username) });
         const meta: EntryMeta = {
           id: crypto.randomUUID(),
+          kind: "web",
           site,
           username: String(p.username),
           title: p.title ? String(p.title) : undefined,
@@ -273,6 +285,7 @@ export class MockTransport implements RawTransport {
         };
         const password = p.password ? String(p.password) : generatePassword(Number(p.generateLength) || 20);
         this.vault.set(meta.id, { meta, password });
+        if (inSession) this.consumeSession();
         return { entry: meta };
       }
 
@@ -280,7 +293,7 @@ export class MockTransport implements RawTransport {
         this.requireUnlocked();
         const item = this.vault.get(String(p.id));
         if (!item) throw new Fault("NOT_FOUND");
-        await this.confirm({ action: "delete", site: item.meta.site, username: item.meta.username });
+        await this.confirm({ action: "delete", site: this.label(item.meta), username: item.meta.username });
         this.vault.delete(item.meta.id);
         return {};
       }
@@ -312,14 +325,40 @@ export class MockTransport implements RawTransport {
         if (p.title === undefined && p.username === undefined && p.password === undefined) throw new Fault("INTERNAL");
         const username = p.username !== undefined ? String(p.username) : item.meta.username;
         const title = p.title !== undefined ? String(p.title) : item.meta.title ?? "";
+        if (item.meta.kind === "secret" && title === "") throw new Fault("INVALID_STATE");
         const enc = new TextEncoder();
         if (enc.encode(item.meta.site).length + enc.encode(username).length + enc.encode(title).length > META_BUDGET) {
           throw new Fault("INVALID_STATE");
         }
-        await this.confirm({ action: "update", site: item.meta.site, username });
+        await this.confirm({ action: "update", site: this.label(item.meta), username });
         item.meta = { ...item.meta, username, title: title || undefined, updatedAt: Date.now() };
         if (p.password !== undefined) item.password = String(p.password);
         return { entry: item.meta };
+      }
+
+      case "REVEAL_SECRET": {
+        this.requireUnlocked();
+        const item = this.vault.get(String(p.id));
+        if (!item) throw new Fault("NOT_FOUND");
+        if (item.meta.kind !== "secret") throw new Fault("INVALID_STATE");
+        await this.confirm({ action: "reveal", site: this.label(item.meta), username: item.meta.username });
+        return { username: item.meta.username, password: item.password };
+      }
+
+      case "IMPORT_BEGIN": {
+        this.requireUnlocked();
+        const count = Number(p.count);
+        if (!Number.isInteger(count) || count < 1 || count > MAX_ENTRIES) throw new Fault("INTERNAL");
+        if (this.activeSession() || count > MAX_ENTRIES - this.vault.size) throw new Fault("INVALID_STATE");
+        await this.confirm({ action: "import", site: `${count} ta yozuv` });
+        this.importSession = { remaining: count, added: 0, deadline: Date.now() + IMPORT_SESSION_MS };
+        return {};
+      }
+
+      case "IMPORT_END": {
+        const added = this.activeSession()?.added ?? 0;
+        this.importSession = null;
+        return { added };
       }
 
       case "LIST_HOSTS": {
@@ -346,6 +385,42 @@ export class MockTransport implements RawTransport {
     }
   }
 
+  /** Tasdiq ekranida ko'rsatiladigan nom: secret uchun title. */
+  private label(meta: EntryMeta): string {
+    return meta.kind === "secret" ? meta.title ?? "" : meta.site;
+  }
+
+  private async addSecret(p: Params): Promise<unknown> {
+    const title = typeof p.title === "string" ? p.title : "";
+    const username = p.username === undefined ? "" : String(p.username);
+    const enc = new TextEncoder();
+    if (title.length < 1 || enc.encode(title).length > 64 || username.length > 256) throw new Fault("INVALID_STATE");
+    if (!p.password && !p.generateLength) throw new Fault("INVALID_STATE");
+    if (this.vault.size >= MAX_ENTRIES || enc.encode(title).length + enc.encode(username).length > META_BUDGET) {
+      throw new Fault("INVALID_STATE");
+    }
+    const inSession = this.activeSession() !== null;
+    if (!inSession) await this.confirm({ action: "save", site: title, username });
+    const meta: EntryMeta = { id: crypto.randomUUID(), kind: "secret", site: "", username, title, updatedAt: Date.now() };
+    const password = p.password ? String(p.password) : generatePassword(Number(p.generateLength));
+    this.vault.set(meta.id, { meta, password });
+    if (inSession) this.consumeSession();
+    return { entry: meta };
+  }
+
+  /** Faol import sessiyasi (120 s muddati o'tgan bo'lsa tugatadi). */
+  private activeSession() {
+    if (this.importSession && Date.now() >= this.importSession.deadline) this.importSession = null;
+    return this.importSession;
+  }
+
+  private consumeSession() {
+    const s = this.importSession;
+    if (!s) return;
+    s.added++;
+    if (--s.remaining <= 0) this.importSession = null;
+  }
+
   private confirm(info: Omit<ConfirmInfo, "timeoutMs">): Promise<void> {
     if (this.pending) return Promise.reject(new Fault("BUSY"));
     this.pendingSince = Date.now();
@@ -369,6 +444,7 @@ export class MockTransport implements RawTransport {
 
   /** Zavod holati: vault, pin qilingan hostlar va qurilma kaliti yo'qoladi. */
   private wipe() {
+    this.importSession = null;
     this.vault.clear();
     this.slots.fill(null);
     this.master = null;

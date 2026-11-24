@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Kalit device protocol — v0.2 (docs/protocol-v0.2.md)
+ * Kalit device protocol — v0.5 (docs/protocol-v0.5.md, delta: v0.4 ustiga)
  *
  * Transport: COBS kadrlari ichida Noise_XX shifrlangan CBOR. Bu fayl faqat mantiqiy xabarlarni
  * ta'riflaydi (SecureTransport ularni {i,c,p} / {i,ok,r|e} / {ev,d} ko'rinishida tashiydi):
@@ -37,6 +37,8 @@ export type DeviceState = z.infer<typeof DeviceState>;
 
 export const EntryMeta = z.object({
   id: z.string(),
+  /** v0.4: "secret" yozuvlar veb-saytga bog'lanmagan; ularda `site` bo'sh ("") va `title` ko'rsatiladi. */
+  kind: z.enum(["web", "secret"]).default("web"),
   site: z.string(),
   username: z.string(),
   title: z.string().optional(),
@@ -55,7 +57,7 @@ export type Status = z.infer<typeof Status>;
 export const Credential = z.object({ username: z.string(), password: z.string() });
 export type Credential = z.infer<typeof Credential>;
 
-export const ConfirmAction = z.enum(["pair", "fill", "save", "delete", "master", "update", "revoke"]);
+export const ConfirmAction = z.enum(["pair", "fill", "save", "delete", "master", "update", "revoke", "reveal", "import"]);
 export type ConfirmAction = z.infer<typeof ConfirmAction>;
 
 export const ConfirmInfo = z.object({
@@ -67,7 +69,8 @@ export const ConfirmInfo = z.object({
 });
 export type ConfirmInfo = z.infer<typeof ConfirmInfo>;
 
-export const AddEntryParams = z.object({
+export const AddWebEntryParams = z.object({
+  kind: z.literal("web").optional(),
   origin: z.string().max(2048),
   /** Registrable domain (extension tldts bilan hisoblaydi); qurilma uni origin host'ining suffiksi ekanini tekshiradi. */
   site: z.string().min(3).max(256),
@@ -77,6 +80,23 @@ export const AddEntryParams = z.object({
   password: z.string().min(1).max(512).optional(),
   generateLength: z.number().int().min(12).max(64).optional(),
 });
+export type AddWebEntryParams = z.infer<typeof AddWebEntryParams>;
+
+/** v0.4: veb-saytga bog'lanmagan sir. Parol yoki generateLength'dan biri majburiy. */
+export const AddSecretEntryParams = z
+  .object({
+    kind: z.literal("secret"),
+    title: z.string().min(1).max(64),
+    username: z.string().max(256).optional(),
+    password: z.string().min(1).max(512).optional(),
+    generateLength: z.number().int().min(12).max(64).optional(),
+  })
+  .refine((p) => p.password !== undefined || p.generateLength !== undefined, {
+    message: "password or generateLength required",
+  });
+export type AddSecretEntryParams = z.infer<typeof AddSecretEntryParams>;
+
+export const AddEntryParams = z.union([AddSecretEntryParams, AddWebEntryParams]);
 export type AddEntryParams = z.infer<typeof AddEntryParams>;
 
 export const UpdateEntryParams = z
@@ -134,6 +154,16 @@ export const Commands = {
   UPDATE_ENTRY: { params: UpdateEntryParams, result: z.object({ entry: EntryMeta }), confirm: true },
   LIST_HOSTS: { params: Empty, result: z.object({ hosts: z.array(HostInfo) }), confirm: false },
   REVOKE_HOST: { params: z.object({ slot: z.number().int().min(0).max(3) }), result: Empty, confirm: true },
+  // v0.4: faqat "secret" yozuvlar uchun (web -> INVALID_STATE, noma'lum id -> NOT_FOUND).
+  REVEAL_SECRET: { params: z.object({ id: z.string() }), result: Credential, confirm: true },
+  // v0.5: bitta tasdiq bilan `count` tagacha ADD_ENTRY (tugmasiz). Sessiya 120 s, IMPORT_END, LOCK yoki uzilishda tugaydi.
+  IMPORT_BEGIN: {
+    params: z.object({ count: z.number().int().min(1).max(32) }),
+    result: Empty,
+    confirm: true,
+  },
+  /** Idempotent: sessiya bo'lmasa ham {added: 0}. Tasdiq talab qilinmaydi. */
+  IMPORT_END: { params: Empty, result: z.object({ added: z.number().int().nonnegative() }), confirm: false },
 } as const;
 
 export type CommandName = keyof typeof Commands;

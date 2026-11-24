@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeviceClient, DeviceError } from "./client";
 import { generateKeyPair, type KeyPair } from "./noise";
 import { MockTransport } from "./mock-transport";
@@ -226,5 +226,222 @@ describe("MockTransport behind Noise", () => {
       const { hosts } = await client.call("LIST_HOSTS", {});
       expect(hosts.length).toBeGreaterThan(0);
     });
+  });
+  describe("v0.4 secret entries", () => {
+    const addSecret = (client: DeviceClient, extra: Record<string, unknown> = {}) =>
+      client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", username: "home", password: "s3cret-pw", ...extra });
+    const addWeb = (client: DeviceClient) =>
+      client.call("ADD_ENTRY", { origin: "https://example.com", site: "example.com", username: "ali", password: "pw-one" });
+
+    it("adds a secret (site empty, kind secret) and lists kinds; web defaults to web", async () => {
+      const { client } = await ready();
+      const { entry } = await addSecret(client);
+      expect(entry).toMatchObject({ kind: "secret", site: "", title: "Wi-Fi", username: "home" });
+      await addWeb(client);
+      const kinds = (await client.call("LIST", {})).entries.map((e) => e.kind);
+      expect(kinds).toEqual(["secret", "web"]);
+    });
+
+    it("generates a password and allows an empty username", async () => {
+      const { client } = await ready();
+      const { entry } = await client.call("ADD_ENTRY", { kind: "secret", title: "PIN", generateLength: 16 });
+      expect(entry.username).toBe("");
+      const cred = await client.call("REVEAL_SECRET", { id: entry.id });
+      expect(cred.password).toHaveLength(16);
+    });
+
+    it("rejects invalid secret params client-side (no title, no password/generateLength)", async () => {
+      const { client } = await ready();
+      await expect(client.call("ADD_ENTRY", { kind: "secret", title: "", password: "x" })).rejects.toThrow();
+      await expect(client.call("ADD_ENTRY", { kind: "secret", title: "x" })).rejects.toThrow();
+      await expect(client.call("ADD_ENTRY", { kind: "secret", title: "x", generateLength: 11 })).rejects.toThrow();
+    });
+
+    it("REVEAL_SECRET returns the secret with a 'reveal' confirmation titled by the entry", async () => {
+      const { client } = await ready();
+      const { entry } = await addSecret(client);
+      const seen: { action: string; site?: string }[] = [];
+      client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data));
+      expect(await client.call("REVEAL_SECRET", { id: entry.id })).toEqual({ username: "home", password: "s3cret-pw" });
+      expect(seen[0]).toMatchObject({ action: "reveal", site: "Wi-Fi" });
+    });
+
+    it("REVEAL_SECRET errors: web -> INVALID_STATE, unknown -> NOT_FOUND, locked -> LOCKED", async () => {
+      const { client } = await ready();
+      const { entry: web } = await addWeb(client);
+      expect(await code(client.call("REVEAL_SECRET", { id: web.id }))).toBe("INVALID_STATE");
+      expect(await code(client.call("REVEAL_SECRET", { id: "nope" }))).toBe("NOT_FOUND");
+      await client.call("LOCK", {});
+      expect(await code(client.call("REVEAL_SECRET", { id: "nope" }))).toBe("LOCKED");
+    });
+
+    it("GET_CREDENTIAL on a secret is ORIGIN_MISMATCH", async () => {
+      const { client } = await ready();
+      const { entry } = await addSecret(client);
+      expect(await code(client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://example.com" }))).toBe("ORIGIN_MISMATCH");
+    });
+
+    it("UPDATE_ENTRY and DELETE_ENTRY work for secrets and confirm with the title", async () => {
+      const { client } = await ready();
+      const { entry } = await addSecret(client);
+      const seen: { action: string; site?: string }[] = [];
+      client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data));
+      const { entry: upd } = await client.call("UPDATE_ENTRY", { id: entry.id, title: "Office Wi-Fi", password: "new-pw" });
+      expect(upd).toMatchObject({ kind: "secret", site: "", title: "Office Wi-Fi" });
+      expect(await client.call("REVEAL_SECRET", { id: entry.id })).toEqual({ username: "home", password: "new-pw" });
+      await client.call("DELETE_ENTRY", { id: entry.id });
+      expect((await client.call("LIST", {})).entries).toHaveLength(0);
+      expect(seen.map((s) => [s.action, s.site])).toEqual([
+        ["update", "Wi-Fi"],
+        ["reveal", "Office Wi-Fi"],
+        ["delete", "Office Wi-Fi"],
+      ]);
+    });
+
+    it("CHANGE_MASTER keeps kind; capacity of 32 is shared between kinds", async () => {
+      const { client } = await ready();
+      const { entry } = await addSecret(client);
+      await client.call("CHANGE_MASTER", { oldPassword: "correct horse battery", newPassword: "another long passphrase" });
+      expect((await client.call("LIST", {})).entries[0]).toMatchObject({ id: entry.id, kind: "secret" });
+      for (let i = 0; i < 31; i++) await addSecret(client, { title: `s${i}` });
+      expect(await code(addSecret(client, { title: "overflow" }))).toBe("INVALID_STATE");
+      expect(await code(addWeb(client))).toBe("INVALID_STATE");
+    });
+  });
+});
+
+describe("protocol v0.5 import session", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const add = (client: DeviceClient, n: number) =>
+    client.call("ADD_ENTRY", { origin: `https://s${n}.example.com`, site: `s${n}.example.com`, username: "u", password: "pw" });
+  const confirms = (client: DeviceClient) => {
+    const seen: { action: string; site?: string; username?: string }[] = [];
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && seen.push(e.data));
+    return seen;
+  };
+
+  it("one confirmation, then count adds without buttons; session ends by itself", async () => {
+    const { client } = await ready();
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    expect(seen).toEqual([{ action: "import", site: "2 ta yozuv", timeoutMs: 10_000 }]);
+    await add(client, 1);
+    await client.call("ADD_ENTRY", { kind: "secret", title: "Wi-Fi", password: "pw" });
+    expect(seen).toHaveLength(1);
+    // count tugadi: keyingisi yana tasdiq so'raydi
+    await add(client, 3);
+    expect(seen.map((s) => s.action)).toEqual(["import", "save"]);
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 0 });
+    expect((await client.call("LIST", {})).entries).toHaveLength(3);
+  });
+
+  it("IMPORT_END returns the added count and closes the session", async () => {
+    const { client } = await ready();
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 5 });
+    await add(client, 1);
+    await add(client, 2);
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 2 });
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 0 });
+    await add(client, 3);
+    expect(seen.map((s) => s.action)).toEqual(["import", "save"]);
+  });
+
+  it("expires after 120 s", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { client } = await ready();
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 3 });
+    await add(client, 1);
+    vi.setSystemTime(Date.now() + 119_000);
+    await add(client, 2);
+    vi.setSystemTime(Date.now() + 2_000);
+    await add(client, 3);
+    expect(seen.map((s) => s.action)).toEqual(["import", "save"]);
+  });
+
+  it("LOCK ends the session", async () => {
+    const { client } = await ready();
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 3 });
+    await client.call("LOCK", {});
+    await client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    await add(client, 1);
+    expect(seen.map((s) => s.action)).toEqual(["import", "save"]);
+  });
+
+  it("a reconnect (close) ends the session", async () => {
+    const mock = new MockTransport({ fast: true });
+    const identity = generateKeyPair();
+    const first = connect(mock, identity);
+    await first.transport.open();
+    await first.client.call("PAIR_HOST", {});
+    await first.client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    await first.client.call("IMPORT_BEGIN", { count: 3 });
+    await mock.close();
+    const second = connect(mock, identity);
+    await second.transport.open();
+    const seen = confirms(second.client);
+    await second.client.call("UNLOCK", { masterPassword: "correct horse battery" });
+    await add(second.client, 1);
+    expect(seen.map((s) => s.action)).toEqual(["save"]);
+  });
+
+  it("rejection leaves no session", async () => {
+    const mock = new MockTransport({ fast: true });
+    const transport = new SecureTransport(mock, generateKeyPair(), {
+      pinnedDeviceKey: async () => null,
+      pinDeviceKey: async () => undefined,
+      hostName: "Test Host",
+      handshakeTimeoutMs: 500,
+    });
+    const client = new DeviceClient(transport);
+    let button: "short" | "long" = "short";
+    client.onEvent((e) => e.event === "CONFIRM_PENDING" && queueMicrotask(() => mock.press(button)));
+    await transport.open();
+    await client.call("PAIR_HOST", {});
+    await client.call("ONBOARD", { masterPassword: "correct horse battery" });
+    button = "long";
+    expect(await code(client.call("IMPORT_BEGIN", { count: 2 }))).toBe("USER_REJECTED");
+    expect(await client.call("IMPORT_END", {})).toEqual({ added: 0 });
+    const seen = confirms(client);
+    expect(await code(add(client, 1))).toBe("USER_REJECTED"); // sessiya yo'q -> "save" tasdig'i
+    expect(seen.map((s) => s.action)).toEqual(["save"]);
+  });
+
+  it("other confirm-requiring commands still need the button", async () => {
+    const { client } = await ready();
+    const { entry } = await add(client, 1);
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 3 });
+    await client.call("GET_CREDENTIAL", { id: entry.id, origin: "https://s1.example.com" });
+    await client.call("UPDATE_ENTRY", { id: entry.id, username: "v" });
+    await client.call("DELETE_ENTRY", { id: entry.id });
+    expect(seen.map((s) => s.action)).toEqual(["import", "fill", "update", "delete"]);
+  });
+
+  it("errors do not end the session or consume the count", async () => {
+    const { client } = await ready();
+    const seen = confirms(client);
+    await client.call("IMPORT_BEGIN", { count: 1 });
+    expect(await code(client.call("ADD_ENTRY", { origin: "https://evil.com", site: "example.com", username: "u", password: "p" }))).toBe(
+      "ORIGIN_MISMATCH",
+    );
+    await add(client, 1);
+    expect(seen).toHaveLength(1);
+    expect((await client.call("LIST", {})).entries).toHaveLength(1);
+  });
+
+  it("INVALID_STATE for a second session or count above free slots; LOCKED when locked", async () => {
+    const { client } = await ready();
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    expect(await code(client.call("IMPORT_BEGIN", { count: 1 }))).toBe("INVALID_STATE");
+    await client.call("IMPORT_END", {});
+    for (let i = 0; i < 30; i++) await client.call("ADD_ENTRY", { kind: "secret", title: `s${i}`, password: "pw" });
+    expect(await code(client.call("IMPORT_BEGIN", { count: 3 }))).toBe("INVALID_STATE");
+    await client.call("IMPORT_BEGIN", { count: 2 });
+    await client.call("LOCK", {});
+    expect(await code(client.call("IMPORT_BEGIN", { count: 1 }))).toBe("LOCKED");
   });
 });

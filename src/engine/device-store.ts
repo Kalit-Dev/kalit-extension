@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { DeviceClient, DeviceError, type ClientErrorCode } from "@/device/client";
 import { forgetDevice, getHostKeyPair, getPinnedDeviceKey, pinDeviceKey } from "@/device/keys";
-import type { AddEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
+import type { AddSecretEntryParams, AddWebEntryParams, Credential, EntryMeta, HostInfo, Status } from "@/device/protocol";
 import { SecureTransport } from "@/device/secure-transport";
 import { SerialTransport } from "@/device/serial-transport";
 import type { RawTransport, TransportKind } from "@/device/transport";
@@ -32,10 +32,17 @@ interface DeviceStore {
   lock(): Promise<void>;
   getCredential(id: string, origin: string): Promise<Credential>;
   /** `site` ni store o'zi hisoblaydi (tldts); qurilma uni origin'ga qarshi tekshiradi. */
-  addEntry(params: Omit<AddEntryParams, "site">): Promise<EntryMeta>;
+  /** Web: `site` ni store hisoblaydi. Secret (`kind: "secret"`): origin/site yo'q. */
+  addEntry(params: Omit<AddWebEntryParams, "site"> | AddSecretEntryParams): Promise<EntryMeta>;
+  /** Faqat secret yozuvlar; qurilmada tasdiq talab qilinadi. Natija hech qayerda saqlanmaydi. */
+  revealSecret(id: string): Promise<{ username: string; password: string }>;
   /** Pin qilingan qurilma kalitini unutadi (DEVICE_KEY_CHANGED dan keyin). */
   forgetDevice(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
+  /** v0.5: bitta qurilma tasdig'i bilan `count` ta tugmasiz addEntry sessiyasini ochadi. */
+  importBegin(count: number): Promise<void>;
+  /** Sessiyani tugatadi; sessiyada qo'shilgan yozuvlar soni (idempotent). */
+  importEnd(): Promise<number>;
   changeMaster(oldPassword: string, newPassword: string): Promise<void>;
   updateEntry(id: string, patch: { title?: string; username?: string; password?: string }): Promise<EntryMeta>;
   listHosts(): Promise<HostInfo[]>;
@@ -168,12 +175,32 @@ export const useDevice = create<DeviceStore>()((set, get) => {
       return client().call("GET_CREDENTIAL", { id, origin });
     },
 
+    revealSecret(id) {
+      return client().call("REVEAL_SECRET", { id });
+    },
+
     async addEntry(params) {
-      const site = siteOf(params.origin);
-      if (!site) throw new DeviceError("INVALID_STATE");
-      const { entry } = await client().call("ADD_ENTRY", { ...params, site });
+      let wire: AddWebEntryParams | AddSecretEntryParams;
+      if ("kind" in params && params.kind === "secret") {
+        wire = params;
+      } else {
+        const web = params as Omit<AddWebEntryParams, "site">;
+        const site = siteOf(web.origin);
+        if (!site) throw new DeviceError("INVALID_STATE");
+        wire = { ...web, site };
+      }
+      const { entry } = await client().call("ADD_ENTRY", wire);
       set((s) => ({ entries: [...s.entries, entry] }));
       return entry;
+    },
+
+    async importBegin(count) {
+      await client().call("IMPORT_BEGIN", { count });
+    },
+
+    async importEnd() {
+      const { added } = await client().call("IMPORT_END", {});
+      return added;
     },
 
     async deleteEntry(id) {
