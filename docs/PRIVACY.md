@@ -6,7 +6,7 @@ Kalit — parollarni ESP32 qurilmasida saqlaydigan brauzer extension'i. Quyida u
 
 ## Qisqacha
 
-- Kalit **hech qanday serverga ulanmaydi**. Extension kodida tarmoq so'rovlari (fetch, WebSocket va h.k.) yo'q.
+- Kalit **o'zining serveriga ulanmaydi** va hech qanday ma'lumot yubormaydi. Yagona tarmoq so'rovi: siz **"Yangilanishni tekshirish"** tugmasini bosganingizda firmware fayllarini `github.com/Kalit-Dev/kalit-firmware` release'idan yuklab olish (faqat GET; hech qanday ma'lumot, cookie yoki identifikator yuborilmaydi). GitHub bu so'rovni o'z siyosatiga ko'ra (IP manzil) qayd etishi mumkin. Tugma bosilmaguncha tarmoq so'rovi yo'q.
 - **Analitika, telemetriya, reklama, kuzatuv yo'q.**
 - Hech qanday ma'lumot kompyuteringizdan tashqariga chiqmaydi. Dasturchilar sizning ma'lumotlaringizni ko'rmaydi va ololmaydi.
 

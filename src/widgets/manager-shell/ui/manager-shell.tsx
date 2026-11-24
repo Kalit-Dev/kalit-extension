@@ -45,6 +45,7 @@ export function ManagerShell() {
   }, [inSettings]);
 
   useEffect(() => {
+    if (pathname === "/firmware") return; // yangilash paytida qurilma uziladi: bu sahifa faza yo'naltirishidan tashqarida
     if (phase === "unlocked") {
       if (!isUnlockedPath(pathname)) navigate("/vault", { replace: true });
     } else if (!FLOW[phase].includes(pathname)) {

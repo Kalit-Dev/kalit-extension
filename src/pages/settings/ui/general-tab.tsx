@@ -1,6 +1,7 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Cpu, EyeOff, RotateCcw, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { useDevice } from "@/entities/device";
 import { forgetDevice, getHostKeyPair } from "@/shared/api/device/keys";
@@ -24,7 +25,16 @@ export function SettingsGeneralPage() {
       <Group icon={<Cpu />} title="Qurilma" description="Ulangan Kalit qurilmasi haqida ma'lumot.">
         <div className="divide-y">
           <Row label="Ulanish" value="USB" />
-          <Row label="Firmware" value={status?.firmware ?? "—"} mono />
+          <Row
+            label="Firmware"
+            value={status?.firmware ?? "—"}
+            mono
+            action={
+              <Link to="/firmware" className="text-xs font-medium text-primary underline-offset-4 hover:underline">
+                Yangilash
+              </Link>
+            }
+          />
           <Row label="Yozuvlar" value={String(count)} />
           <Row label="Bu kompyuter kaliti" value={hostKey} mono />
         </div>
@@ -102,11 +112,14 @@ function Group({
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({ label, value, mono, action }: { label: string; value: string; mono?: boolean; action?: ReactNode }) {
   return (
     <div className="flex items-center justify-between px-6 py-3 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className={mono ? "font-mono text-xs" : undefined}>{value}</span>
+      <span className="flex items-center gap-3">
+        <span className={mono ? "font-mono text-xs" : undefined}>{value}</span>
+        {action}
+      </span>
     </div>
   );
 }

@@ -27,16 +27,25 @@ export class SerialTransport implements RawTransport {
 
   /** Foydalanuvchi qurilmani tanlaydi (user gesture talab qilinadi). */
   static async request(): Promise<SerialTransport> {
-    const port = await navigator.serial.requestPort({ filters: SUPPORTED_VIDS.map((usbVendorId) => ({ usbVendorId })) });
-    return new SerialTransport(port);
+    return new SerialTransport(await SerialTransport.requestPort());
   }
 
   /** Avval ruxsat berilgan qurilmaga jim ulanish. */
   static async fromGranted(): Promise<SerialTransport | null> {
+    const port = await SerialTransport.grantedPort();
+    return port ? new SerialTransport(port) : null;
+  }
+
+  /** Qo'llab-quvvatlanadigan, avval ruxsat berilgan xom port (firmware yangilash ham shuni ishlatadi). */
+  static async grantedPort(): Promise<SerialPort | null> {
     if (!SerialTransport.isSupported()) return null;
     const ports = await navigator.serial.getPorts();
-    const port = ports.find((p) => SUPPORTED_VIDS.includes(p.getInfo().usbVendorId ?? -1));
-    return port ? new SerialTransport(port) : null;
+    return ports.find((p) => SUPPORTED_VIDS.includes(p.getInfo().usbVendorId ?? -1)) ?? null;
+  }
+
+  /** Chooser'ni ochadi (user gesture talab qilinadi). */
+  static requestPort(): Promise<SerialPort> {
+    return navigator.serial.requestPort({ filters: SUPPORTED_VIDS.map((usbVendorId) => ({ usbVendorId })) });
   }
 
   async open(): Promise<void> {

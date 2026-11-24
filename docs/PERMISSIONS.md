@@ -23,11 +23,17 @@ physical Kalit device (USB, ESP32), fills in the credentials or offers to save n
   Page content is never sent anywhere.
 - **Content script** (`content.js`, `document_idle`, top frame only): detects login forms, intercepts submit to offer saving, fills fields.
 - **Web Serial** (no manifest permission): the user grants a specific USB device through Chrome's chooser on `grant.html`;
-  the chooser is filtered to the Espressif, Silicon Labs and WCH USB vendor IDs used by supported boards.
+  the chooser is filtered to the Espressif, Silicon Labs and WCH USB vendor IDs used by supported boards. The same port is
+  used by the Firmware page to flash a verified firmware image to the device's ROM bootloader (esptool-js, bundled).
+- **Host permission `https://*/*` also covers** the firmware download above (cross-origin fetch from the extension page).
 
 ## Data usage disclosures
 
 - Collects: none. Passwords are held on the user's hardware device, not by the publisher.
 - No data is sold, transferred to third parties, or used for unrelated purposes; no remote code (all code ships in the package).
-- No network requests are made by the extension.
+- One user-initiated network request type: the manager's Firmware page ("Check for updates") downloads firmware release
+  files (GET only, no data sent, no credentials) from `https://github.com/Kalit-Dev/kalit-firmware/releases/latest/download/`.
+  Nothing is downloaded until the user clicks. Before anything is written to the device the extension verifies an Ed25519
+  signature over `SHA256SUMS` (public key pinned in the package) and the SHA-256 of every file. No remote code is executed:
+  the files are firmware binaries for the user's own device, not extension code.
 - Privacy policy: docs/PRIVACY.md (publish it at a public URL and enter that URL in the form).

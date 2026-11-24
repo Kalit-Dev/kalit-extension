@@ -48,6 +48,11 @@ Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport 
 - **Background** — engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
 - **USB ruxsati** `grant.html` (oddiy tab) orqali olinadi: tanlash oynasi popup/offscreen'da ochilmaydi. Ruxsatdan keyin
   engine o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
+- **Firmware yangilash** (`/firmware` sahifasi; Sozlamalar → Umumiy → Firmware → Yangilash yoki ulanish ekranidagi havola):
+  `loadVerifiedRelease` GitHub'dan release'ni yuklaydi va **qurilmaga tegmasdan** Ed25519 imzosini (`SHA256SUMS.sig`) va har
+  fayl SHA-256'ini tekshiradi; keyin engine portni bo'shatadi, esptool-js (Web Serial) chip nomini release'dagi bilan
+  solishtiradi va `nvs`/`kvault`ga tegmay yozadi (+ qurilmadagi MD5 tekshiruvi). Eski versiyaga qaytarish rad etiladi.
+  Imzo kaliti: `src/shared/api/firmware/signing-key.ts` (sozlanmaguncha tugma o'chiq), tartib: kalit-firmware `docs/RELEASE-SIGNING.md`.
 - **Parollar faqat lahzada.** Extension'da faqat metadata (sayt, login) RAM'da turadi.
 - **Origin `sender.tab.url` dan olinadi**, payload'dan emas. Qurilma ham domenni o'zi tekshiradi.
 - **Har bir parol / saqlash / o'chirish / pairing — qurilmada tugma bilan tasdiq** (10 s, keyin reject).

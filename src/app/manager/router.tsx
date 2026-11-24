@@ -1,6 +1,7 @@
 import { createHashRouter, Navigate } from "react-router";
 import { ConnectPage } from "@/pages/connect";
 import { EntryFormPage } from "@/pages/entry-form";
+import { FirmwarePage } from "@/pages/firmware";
 import { PairPage } from "@/pages/pair";
 import { SettingsBackupPage, SettingsGeneralPage, SettingsHostsPage, SettingsImportPage, SettingsLayout, SettingsSecurityPage } from "@/pages/settings";
 import { SetupDonePage, SetupPage } from "@/pages/setup";
@@ -14,6 +15,7 @@ export const router = createHashRouter([
     element: <ManagerShell />,
     children: [
       { path: "/connect", element: <ConnectPage /> },
+      { path: "/firmware", element: <FirmwarePage /> },
       { path: "/pair", element: <PairPage /> },
       { path: "/setup", element: <SetupPage /> },
       { path: "/setup/done", element: <SetupDonePage /> },
