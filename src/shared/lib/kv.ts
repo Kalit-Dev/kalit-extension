@@ -3,7 +3,7 @@
  * Offscreen hujjatda `chrome.storage` yo'q (faqat `chrome.runtime`) — u holda so'rov background service worker'ga
  * yo'naltiriladi. Ikkala yo'lda ham saqlanadigan joy bitta: `chrome.storage.local`.
  */
-export const KV_KEYS = ["hostPriv", "deviceKey", "neverSave", "autoConnect", "lastBackupAt"] as const;
+export const KV_KEYS = ["hostPriv", "deviceKey", "neverSave", "autoConnect", "lastBackupAt", "backupReminderSnoozedAt"] as const;
 export type KvKey = (typeof KV_KEYS)[number];
 
 export type KvRequest =
