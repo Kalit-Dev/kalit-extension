@@ -44,11 +44,11 @@ export function SetupForm() {
   return (
     <form onSubmit={onSubmit} className="grid gap-4" noValidate>
       <Field label="Master parol" htmlFor="password" error={errors.password?.message}>
-        <PasswordInput id="password" autoFocus aria-invalid={!!errors.password} {...form.register("password")} />
+        <PasswordInput id="password" placeholder="Kamida 12 ta belgi" autoFocus aria-invalid={!!errors.password} {...form.register("password")} />
         <PasswordStrengthMeter password={form.watch("password")} className="pt-1" />
       </Field>
       <Field label="Parolni takrorlang" htmlFor="confirm" error={errors.confirm?.message}>
-        <PasswordInput id="confirm" aria-invalid={!!errors.confirm} {...form.register("confirm")} />
+        <PasswordInput id="confirm" placeholder="Parolni qayta kiriting" aria-invalid={!!errors.confirm} {...form.register("confirm")} />
       </Field>
       <Button type="submit" size="lg" disabled={isSubmitting}>
         {isSubmitting && <Loader2 className="animate-spin" />}

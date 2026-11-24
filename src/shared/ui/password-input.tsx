@@ -12,7 +12,7 @@ export function PasswordInput({ className, ...props }: Omit<React.ComponentProps
         type={visible ? "text" : "password"}
         autoComplete="off"
         spellCheck={false}
-        className={cn("pr-9 font-mono", className)}
+        className={cn("pr-9 font-mono placeholder:font-sans", className)}
         {...props}
       />
       <button

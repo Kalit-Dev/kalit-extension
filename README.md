@@ -6,11 +6,21 @@ React 19 · TypeScript · Tailwind v4 · shadcn/ui · React Router 7 · Zod 4 ·
 ## Ishga tushirish
 
 ```bash
-npm install
-npm run build        # yoki: npm run dev (watch rejimi)
+pnpm install
+pnpm run build       # dist/ ga yig'adi (tsc + vite); dev: pnpm run dev (watch rejimi)
+pnpm test            # vitest (interop testi firmware binari bo'lmasa o'tkazib yuboriladi)
+npx tsc --noEmit     # tip tekshiruvi
+pnpm package         # tsc + test + build, so'ng release/kalit-extension-v<versiya>.zip
 ```
 
+Versiya `package.json` va `public/manifest.json` da bir xil bo'lishi shart (`pnpm package` farq bo'lsa to'xtaydi).
+Ikonkalarni qayta yaratish: `pnpm run icons` (`scripts/make-icons.mjs`, natija `public/icons/`).
+
 Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → `dist/` papkasi.
+
+Hujjatlar: [o'rnatish qo'llanmasi](docs/INSTALL.md) · [maxfiylik siyosati](docs/PRIVACY.md) · [ruxsatlar (Web Store)](docs/PERMISSIONS.md) · [store listing](docs/store-listing.md) · [release checklist](docs/RELEASING.md).
+CI: `.github/workflows/ci.yml` (tsc, test, build, zip artifact).
+
 Toolbar'dagi Kalit ikonkasi kichik popup'ni ochadi (holat, qulfni ochish, tez ro'yxat, fill). To'liq boshqaruv uchun popup'da **"Boshqaruvni ochish"** (`manager.html`, oddiy tab).
 
 ## Interfeyslar
@@ -52,7 +62,7 @@ slice'ga faqat `index.ts` (ochiq API) orqali murojaat qilinadi. Qoidalar `src/fs
 src/
   app/        Extension entry'lari (har biri alohida bundle): manager/, popup/, overlay/, background/,
               content/, engine/ (offscreen: holat mashinasi + hub), grant/, styles/globals.css
-  pages/      Marshrut sahifalari: vault, entry-form, import, settings, connect, pair, setup, unlock,
+  pages/      Marshrut sahifalari: vault, entry-form, settings (umumiy/hostlar/import/xavfsizlik), connect, pair, setup, unlock,
               popup-vault, popup-connect
   widgets/    Katta bloklar: manager-shell, popup-shell, entry-details-dialog, overlay-inline-menu, overlay-save-prompt
   features/   Foydalanuvchi amallari: entry-form, import-entries, backup, change-master-password, manage-hosts,

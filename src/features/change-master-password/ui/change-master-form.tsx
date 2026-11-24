@@ -68,6 +68,7 @@ export function ChangeMasterForm() {
           <Field label="Joriy master parol" htmlFor="current" error={errors.current?.message}>
             <PasswordInput
               id="current"
+              placeholder="Joriy master parol"
               autoComplete="current-password"
               aria-invalid={!!errors.current}
               {...form.register("current")}
@@ -83,6 +84,7 @@ export function ChangeMasterForm() {
             >
               <PasswordInput
                 id="password"
+                placeholder="Kamida 12 ta belgi"
                 autoComplete="new-password"
                 aria-invalid={!!errors.password}
                 {...form.register("password")}
@@ -92,6 +94,7 @@ export function ChangeMasterForm() {
             <Field label="Yangi parolni takrorlang" htmlFor="confirm" error={errors.confirm?.message}>
               <PasswordInput
                 id="confirm"
+                placeholder="Yangi parolni qayta kiriting"
                 autoComplete="new-password"
                 aria-invalid={!!errors.confirm}
                 {...form.register("confirm")}

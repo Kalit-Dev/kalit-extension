@@ -238,7 +238,10 @@ export function EntryForm() {
                 error={errors.password?.message}
                 hint={editing ? "Bo'sh qoldirsangiz, parol o'zgarmaydi" : undefined}
               >
-                <PasswordInput id="password" aria-invalid={!!errors.password} {...form.register("password")} />
+                <PasswordInput
+                  id="password"
+                  placeholder={editing ? "Yangi parol (ixtiyoriy)" : "Parolni kiriting"}
+                  aria-invalid={!!errors.password} {...form.register("password")} />
               </Field>
             )}
           </div>

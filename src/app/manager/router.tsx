@@ -1,9 +1,8 @@
 import { createHashRouter, Navigate } from "react-router";
 import { ConnectPage } from "@/pages/connect";
 import { EntryFormPage } from "@/pages/entry-form";
-import { ImportPage } from "@/pages/import";
 import { PairPage } from "@/pages/pair";
-import { SettingsBackupPage, SettingsGeneralPage, SettingsHostsPage, SettingsLayout, SettingsSecurityPage } from "@/pages/settings";
+import { SettingsBackupPage, SettingsGeneralPage, SettingsHostsPage, SettingsImportPage, SettingsLayout, SettingsSecurityPage } from "@/pages/settings";
 import { SetupDonePage, SetupPage } from "@/pages/setup";
 import { UnlockPage } from "@/pages/unlock";
 import { VaultPage } from "@/pages/vault";
@@ -22,7 +21,7 @@ export const router = createHashRouter([
       { path: "/vault", element: <VaultPage /> },
       { path: "/vault/new", element: <EntryFormPage /> },
       { path: "/vault/:id/edit", element: <EntryFormPage /> },
-      { path: "/import", element: <ImportPage /> },
+      { path: "/import", element: <Navigate to="/settings/import" replace /> },
       { path: "/security", element: <Navigate to="/settings/security" replace /> },
       {
         path: "/settings",
@@ -31,6 +30,7 @@ export const router = createHashRouter([
           { index: true, element: <Navigate to="general" replace /> },
           { path: "general", element: <SettingsGeneralPage /> },
           { path: "hosts", element: <SettingsHostsPage /> },
+          { path: "import", element: <SettingsImportPage /> },
           { path: "security", element: <SettingsSecurityPage /> },
           { path: "backup", element: <SettingsBackupPage /> },
         ],

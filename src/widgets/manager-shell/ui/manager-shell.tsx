@@ -1,4 +1,4 @@
-import { ChevronRight, FileUp, KeyRound, Settings } from "lucide-react";
+import { ChevronRight, KeyRound, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { ConfirmOverlay, DeviceStatusBadge, useDevice, type Phase } from "@/entities/device";
@@ -21,12 +21,12 @@ const isUnlockedPath = (p: string) =>
 
 const NAV = [
   { to: "/vault", label: "Parollar", icon: KeyRound },
-  { to: "/import", label: "Import", icon: FileUp },
 ];
 
 const SETTINGS_NAV = [
   { to: "/settings/general", label: "Umumiy" },
   { to: "/settings/hosts", label: "Hostlar" },
+  { to: "/settings/import", label: "Import" },
   { to: "/settings/security", label: "Xavfsizlik" },
   { to: "/settings/backup", label: "Zaxira" },
 ];

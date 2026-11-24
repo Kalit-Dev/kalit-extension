@@ -45,7 +45,7 @@ export function UnlockForm() {
         error={errors.password?.message}
         hint={attemptsLeft < 10 ? `Qolgan urinishlar: ${attemptsLeft}. 0 bo'lsa qurilma tozalanadi.` : undefined}
       >
-        <PasswordInput id="password" autoFocus aria-invalid={!!errors.password} {...form.register("password")} />
+        <PasswordInput id="password" placeholder="Master parolni kiriting" autoFocus aria-invalid={!!errors.password} {...form.register("password")} />
       </Field>
       <Button type="submit" size="lg" disabled={isSubmitting}>
         {isSubmitting && <Loader2 className="animate-spin" />}

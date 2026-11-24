@@ -5,6 +5,7 @@ import { PageTitle } from "@/shared/ui/page-title";
 const TABS = [
   { to: "/settings/general", label: "Umumiy" },
   { to: "/settings/hosts", label: "Hostlar" },
+  { to: "/settings/import", label: "Import" },
   { to: "/settings/security", label: "Xavfsizlik" },
   { to: "/settings/backup", label: "Zaxira" },
 ] as const;
@@ -13,7 +14,7 @@ const TABS = [
 export function SettingsLayout() {
   return (
     <div>
-      <PageTitle title="Sozlamalar" description="Qurilma, ulangan kompyuterlar va xavfsizlik sozlamalari." />
+      <PageTitle title="Sozlamalar" description="Qurilma, ulangan kompyuterlar, import va xavfsizlik sozlamalari." />
       <nav aria-label="Sozlamalar bo'limlari" className="mb-6 flex gap-1 border-b">
         {TABS.map(({ to, label }) => (
           <NavLink
