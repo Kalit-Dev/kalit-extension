@@ -14,6 +14,7 @@ const MESSAGES: Record<string, string> = {
   DISCONNECTED: "Qurilma uzildi",
   PROTOCOL: "Qurilmadan noto'g'ri javob keldi",
   NO_PORT: "USB qurilmaga ruxsat berilmagan",
+  PORT_BUSY: "Port ochilmadi: boshqa dastur band qilgan (serial monitor, pio, boshqa tab) yoki kabelni qayta ulang",
   NO_PANEL: "Kalit paneli yopiq",
   NO_PAGE: "Bu sahifani to'ldirib bo'lmaydi",
   INTERNAL: "Kutilmagan xato",

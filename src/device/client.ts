@@ -12,7 +12,7 @@ import {
 } from "./protocol";
 import type { Transport } from "./transport";
 
-export type ClientErrorCode = ErrorCode | "DISCONNECTED" | "PROTOCOL" | "NO_PORT";
+export type ClientErrorCode = ErrorCode | "DISCONNECTED" | "PROTOCOL" | "NO_PORT" | "PORT_BUSY";
 
 export class DeviceError extends Error {
   constructor(readonly code: ClientErrorCode) {

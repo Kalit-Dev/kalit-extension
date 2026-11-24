@@ -87,6 +87,10 @@ export const useDevice = create<DeviceStore>()((set, get) => {
           await secure.open();
         } catch (e) {
           if (e instanceof Error && SECURE_ERRORS.has(e.message)) throw new DeviceError(e.message as ClientErrorCode);
+          // Web Serial port.open(): NetworkError = port band/ochilmadi, InvalidStateError = allaqachon ochiq.
+          if (e instanceof DOMException && (e.name === "NetworkError" || e.name === "InvalidStateError")) {
+            throw new DeviceError("PORT_BUSY");
+          }
           throw e;
         }
 
@@ -105,6 +109,7 @@ export const useDevice = create<DeviceStore>()((set, get) => {
         set({ client: c, kind, pairingCode: secure.pairingCode });
         await get().refresh();
       } catch (e) {
+        console.error("[kalit-engine] connect failed", e);
         await (get().client?.transport ?? secure)?.close().catch(() => undefined);
         set({ ...initialState });
         if (!silent) throw e;
