@@ -55,7 +55,7 @@ export function Segmented<T extends string>({
             "flex items-center justify-center gap-2 rounded-md font-medium text-muted-foreground outline-none transition-all",
             "hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
             compact ? "rounded-[5px] px-2.5 py-0.5 text-xs" : "px-3 py-2 text-sm",
-            value === v && "bg-background text-foreground shadow-sm ring-1 ring-border",
+            value === v && "bg-card text-foreground shadow-sm ring-1 ring-border",
           )}
         >
           {Icon && <Icon className={compact ? "size-3.5" : "size-4"} />}

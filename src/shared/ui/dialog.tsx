@@ -25,7 +25,7 @@ export function Dialog({ title, description, onClose, children, className }: Dia
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "flex max-h-[min(90vh,52rem)] w-full max-w-lg animate-in flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl duration-200 fade-in-0 zoom-in-95",
+          "flex max-h-[min(90vh,52rem)] w-full max-w-lg animate-in flex-col overflow-hidden rounded-xl border bg-card shadow-xl duration-200 fade-in-0 zoom-in-95",
           className,
         )}
       >
