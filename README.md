@@ -1,127 +1,208 @@
-# Kalit — Chrome Extension (MV3)
+# Kalit — brauzer extension'i
 
-ESP32-S3 hardware password manager uchun Chrome extension.
-React 19 · TypeScript · Tailwind v4 · shadcn/ui · React Router 7 · Zod 4 · React Hook Form · Zustand.
+**Kalit** — parollaringizni brauzerda emas, o'zingizning **ESP32 qurilmangizda** saqlaydigan apparat parol menejeri.
+Bu repo uning Chrome/Brave (Manifest V3) extension'i: qurilma bilan USB orqali gaplashadi, login formalarni to'ldiradi
+va to'liq boshqaruv sahifasini beradi. Qurilma dasturi: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware).
 
-## Ishga tushirish
+> **Holat:** versiya 1.1.0. Loyiha hali dev-grade: qurilma oqimi (juftlash, ochish, to'ldirish, zaxira) to'liq apparatda
+> sinab bo'linmagan. **Haqiqiy, muhim parollar uchun ishlatmang.** Aloqa faqat USB orqali; Bluetooth ko'zda tutilmagan.
+
+## Mundarija
+
+- [Nima qiladi](#nima-qiladi)
+- [Tezkor boshlash](#tezkor-boshlash)
+- [Xavfsizlik modeli](#xavfsizlik-modeli)
+- [Interfeyslar](#interfeyslar)
+- [Arxitektura](#arxitektura)
+- [Protokol](#protokol)
+- [Loyiha tuzilmasi](#loyiha-tuzilmasi)
+- [Dasturchi uchun](#dasturchi-uchun)
+- [Qo'lda tekshirish (QA)](#qolda-tekshirish-qa)
+- [Yo'l xaritasi](#yol-xaritasi)
+- [Hujjatlar](#hujjatlar)
+
+## Nima qiladi
+
+| Imkoniyat | Tavsif |
+|---|---|
+| **Parollar qurilmada** | Parollar, loginlar va yozuvlar faqat Kalit qurilmasida shifrlangan holda turadi. Extension ularni diskka yozmaydi. |
+| **Avto-to'ldirish** | Login formalarni topadi, kirish maydonida taklif chiqaradi va qurilmada tugma bosilgach to'ldiradi. |
+| **Saqlash taklifi** | Yangi login yuborilganda "Saqlansinmi?" so'raydi. Saqlamaslik kerak bo'lgan saytlarni belgilash mumkin. |
+| **Yozuv turlari** | Veb parollar, maxfiy yozuvlar (Wi-Fi, SSH kaliti kabi saytga bog'lanmagan sirlar), 2FA (TOTP) kodlari va maxfiy eslatmalar. |
+| **Qurilmada yaratish** | Parol, PIN yoki so'zlardan iborat parol qurilmaning o'zida yaratiladi va kompyuterga chiqmaydi. |
+| **Parol tekshiruvi** | Qurilmada hisoblanadi; ro'yxatda faqat "Zaif" va "Takroriy" belgilari ko'rinadi. |
+| **Import** | Bitwarden (JSON) va CSV fayllardan, qurilmada bitta tasdiq bilan. |
+| **Shifrlangan zaxira** | Alohida zaxira paroli bilan `.kalit` fayliga olinadi va undan tiklanadi. 30 kundan ortiq zaxirasiz qolsa, eslatma chiqadi. |
+| **Hostlar** | Qurilma 4 tagacha kompyuterni tanib qoladi; Sozlamalardan istalganini bekor qilish mumkin. |
+| **Firmware yangilash** | Imzosi tekshirilgan release'ni brauzerdan to'g'ridan-to'g'ri qurilmaga yozadi (vault saqlanib qoladi). |
+
+## Tezkor boshlash
+
+### Foydalanuvchi uchun
+
+Talablar: Chrome yoki Chromium asosidagi brauzer (116+, Web Serial bilan), data USB kabel va Kalit qurilmasi
+(firmware **1.3.0 yoki yangi**).
+
+1. [Releases](https://github.com/Kalit-Dev/kalit-extension/releases) sahifasidan `kalit-extension-vX.Y.Z.zip` ni yuklab,
+   doimiy papkaga chiqaring (papkani keyin o'chirmang).
+2. `chrome://extensions` → **Developer mode** → **Load unpacked** → chiqarilgan papka.
+3. Kalit ikonkasini toolbar'ga mahkamlang, ustiga bosing va **USB orqali ulash** ni tanlang.
+4. Qurilmani ulang, kompyuterda OLED'dagi 2 xonali kodga mos variantni tanlang (juftlash), master parol o'rnating.
+
+Batafsil: [docs/INSTALL.md](docs/INSTALL.md).
+
+### Manbadan yig'ish
 
 ```bash
 pnpm install
-pnpm run build       # dist/ ga yig'adi (tsc + vite); dev: pnpm run dev (watch rejimi)
-pnpm test            # vitest (interop testi firmware binari bo'lmasa o'tkazib yuboriladi)
-npx tsc --noEmit     # tip tekshiruvi
-pnpm package         # tsc + test + build, so'ng release/kalit-extension-v<versiya>.zip
+pnpm run build      # dist/ ga yig'adi (tsc + vite)
 ```
 
-Versiya `package.json` va `public/manifest.json` da bir xil bo'lishi shart (`pnpm package` farq bo'lsa to'xtaydi).
-Ikonkalarni qayta yaratish: `pnpm run icons` (`scripts/make-icons.mjs`, natija `public/icons/`).
+So'ng `chrome://extensions` → **Load unpacked** → `dist/` papkasi.
 
-Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → `dist/` papkasi.
+## Xavfsizlik modeli
 
-Hujjatlar: [o'rnatish qo'llanmasi](docs/INSTALL.md) · [maxfiylik siyosati](docs/PRIVACY.md) · [ruxsatlar (Web Store)](docs/PERMISSIONS.md) · [store listing](docs/store-listing.md) · [release checklist](docs/RELEASING.md).
-CI: `.github/workflows/ci.yml` (tsc, test, build, zip artifact).
+- **Parollar kompyuterda saqlanmaydi.** Extension'da faqat metadata (sayt, login, nom) xotirada turadi. Parol, eslatma va
+  2FA kodi faqat kerak bo'lgan lahzada olinadi va state bilan birga o'chadi.
+- **Har bir sezgir amal qurilmada tugma bilan tasdiqlanadi** (parolni olish, saqlash, o'chirish, yangilash, 2FA kodi).
+  Tasdiq 10 soniya kutadi, so'ng rad etiladi.
+- **Shifrlangan kanal.** Extension va qurilma orasida `Noise_XX_25519_ChaChaPoly_SHA256`; xabarlar CBOR.
+- **Origin extension tomonidan aniqlanadi** (`sender.tab.url`), sahifa yuborgan ma'lumotdan emas. Qurilma domenni
+  yana o'zi tekshiradi.
+- **Juftlash kodi.** Yangi kompyuter ulanganda qurilma OLED'da 2 xonali kod ko'rsatadi; extension uchta variant (bittasi
+  haqiqiy) va "Hech biri mos emas" tugmasini chiqaradi. Tugma bosilmaydi: to'g'ri kod tanlansa, ulanish darhol yakunlanadi.
+- **Tarmoq so'rovi yo'q.** Extension o'z serveriga ulanmaydi, telemetriyasi yo'q. Yagona istisno: siz "Yangilanishni
+  tekshirish" ni bosganingizda GitHub'dan firmware yuklab olinadi. [Maxfiylik siyosati](docs/PRIVACY.md).
 
-Toolbar'dagi Kalit ikonkasi kichik popup'ni ochadi (holat, qulfni ochish, tez ro'yxat, fill). To'liq boshqaruv uchun popup'da **"Boshqaruvni ochish"** (`manager.html`, oddiy tab).
+**Cheklovlar (ongli qarorlar):**
+
+- Juftlash kodi atigi 2 xonali (~6.6 bit) va tanlov natijasini qurilma tekshira olmaydi. Shuning uchun extension va
+  qurilma orasidagi faol MITM yoki buzilgan kompyuter o'zini jismoniy ishtiroksiz pin qila oladi. Pin qilingan host
+  baribir vault'ni **master parolsiz** ocha olmaydi va har amal tugma talab qiladi.
+- "Kod mos kelmadi" chiqqan bo'lsa-yu, OLED'da "Ulandi" ko'rinsa, bu begona ulanish belgisi: hostni
+  **Sozlamalar → Hostlar** bo'limida bekor qiling.
+- Zaxira paroli tiklanmaydi: yo'qolsa, zaxira fayli ochilmaydi.
+- Firmware < 1.3.0 bilan juftlash boshlanmaydi; extension firmware'ni yangilashni so'raydi.
 
 ## Interfeyslar
 
-- **Popup** — minimal: ulanish/qulf holati, qidiruv, login nusxalash, fill.
-- **Manager (`manager.html`)** — to'liq sahifa: **Parollar** (qidiruv, qo'shish, tahrirlash, o'chirish), **Hostlar** (pin qilingan kompyuterlar, bekor qilish), **Xavfsizlik** (master parolni o'zgartirish), **Sozlamalar** (qurilma ma'lumoti, "saqlanmasin" saytlari). Qurilmada tugma kutilganda markazda tasdiq modal'i chiqadi.
-- Engine faqat tab'siz extension sahifalaridan va aynan `manager.html` tab'idan RPC qabul qiladi; content script/overlay rad etiladi.
+**Popup** (toolbar ikonkasi) — minimal: ulanish va qulf holati, qidiruv, login nusxalash, to'ldirish.
+To'liq boshqaruv uchun **"Boshqaruvni ochish"**.
+
+**Manager** (`manager.html`) — to'liq sahifa:
+
+- **Parollar** — yon paneldagi ochiladigan guruh: Hammasi / Veb / Maxfiy / 2FA / Eslatma toifalari (sonlari bilan).
+  Qidiruv, ro'yxat turlar bo'yicha guruhlangan. "Yangi yozuv" va "Tahrirlash" ro'yxat ustida ochiladigan dialogda.
+- **Sozlamalar** — Umumiy (qurilma ma'lumoti, "saqlanmasin" saytlari, firmware yangilash), Hostlar, Import, Xavfsizlik
+  (master parolni o'zgartirish), Zaxira.
+
+Qurilmada tugma kutilayotganda markazda tasdiq oynasi chiqadi. Engine faqat extension'ning o'z sahifalaridan RPC qabul
+qiladi; content script va overlay rad etiladi.
 
 ## Arxitektura
 
 ```
 Sayt sahifasi
  ├─ content.js            login formalarni topadi, submit'ni ushlaydi, formani to'ldiradi
- └─ <iframe overlay.html> inline menu / "saqlansinmi?" (yopiq Shadow DOM, extension origin)
+ └─ <iframe overlay.html> inline menu va "saqlansinmi?" (yopiq Shadow DOM, extension origin)
           │  chrome.runtime.sendMessage
           ▼
-Engine / offscreen (hub) ──── DeviceClient ──── SecureTransport ──── RawTransport ──── ESP32
- React UI + zustand    zod validatsiya   Noise_XX + CBOR        COBS kadrlar: USB (Web Serial)
+Engine (offscreen) ──── DeviceClient ──── SecureTransport ──── RawTransport ──── ESP32
+ holat mashinasi + hub   zod validatsiya   Noise_XX + CBOR      COBS kadrlar, USB (Web Serial)
 ```
 
-- **Engine (offscreen hujjat) — qurilma ulanishining egasi.** U brauzer ochiq ekan doim yashaydi, shuning uchun popup
-  yopiq bo'lsa ham inline taklif va avto-to'ldirish ishlaydi. Web Serial MV3 service worker'da ishonchli emas (u ~30 s da
-  to'xtatiladi), popup esa yopilganda ulanishni yo'qotardi.
-- **Popup va manager — faqat UI.** Engine holatining ko'zgusi (`store/device-store.ts`), amallar engine'ga RPC bilan boradi.
-- **Background** — engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
-- **USB ruxsati** manager sahifasida "USB orqali ulash" bosilganda Chrome tanlash oynasi bilan olinadi (popup/offscreen'da
-  oyna ochilmaydi, popup shuning uchun manager'ni ochadi). Ruxsat extension origin'iga tegishli, engine keyin o'zi ulanadi; kabel qayta ulansa — qayta ulanadi. "Uzish" bosilsa avto-ulanish o'chadi (firmware yuklash uchun port bo'shaydi).
-- **Firmware yangilash** (`/firmware` sahifasi; Sozlamalar → Umumiy → Firmware → Yangilash):
-  `loadVerifiedRelease` GitHub'dan release'ni yuklaydi va **qurilmaga tegmasdan** Ed25519 imzosini (`SHA256SUMS.sig`) va har
-  fayl SHA-256'ini tekshiradi; keyin engine portni bo'shatadi, esptool-js (Web Serial) chip nomini release'dagi bilan
-  solishtiradi va `nvs`/`kvault`ga tegmay yozadi (+ qurilmadagi MD5 tekshiruvi). Eski versiyaga qaytarish rad etiladi.
-  Imzo kaliti: `src/shared/api/firmware/signing-key.ts` (sozlanmaguncha tugma o'chiq), tartib: kalit-firmware `docs/RELEASE-SIGNING.md`.
-- **Parollar faqat lahzada.** Extension'da faqat metadata (sayt, login) RAM'da turadi.
-- **Origin `sender.tab.url` dan olinadi**, payload'dan emas. Qurilma ham domenni o'zi tekshiradi.
-- **Har bir parol / saqlash / o'chirish — qurilmada tugma bilan tasdiq** (10 s, keyin reject). Pairing bundan mustasno
-  (pastga qarang).
-- **Pairing kodini solishtirish (protokol v0.11, firmware ≥ 1.3.0).** Yangi host ulanganda qurilma OLED'da **2 xonali**
-  kodni ko'rsatadi (masalan `07`); bu bosqichda qurilma tugmasi ishlamaydi. Extension 3 ta kodni aralashtirib ko'rsatadi
-  (1 tasi haqiqiy, host'ning o'zi handshake'dan hisoblagan; 2 tasi tasodifiy, hammasi har xil) va alohida **"Hech biri mos
-  emas"** tugmasi. Foydalanuvchi OLED'dagi kod bilan bir xilini tanlaydi (30 s). To'g'ri kod tanlansa — ulanish **qurilmada
-  tugma bosmasdan** darhol yakunlanadi ("Ulanmoqda…", keyin OLED'da "Ulandi"). Noto'g'ri kod yoki "Hech biri mos emas" —
-  pairing rad etiladi va "Kod mos kelmadi" ogohlantirishi chiqadi. Qurilma yuborgan kodga ishonilmaydi: taqqoslash host'dagi
-  kod bilan. Bu tekshirilmagan pairing'ni **tasodifan** qabul qilishdan himoya qiladi va MITM'ni **aniqlash** imkonini
-  beradi (uchta variant orasida OLED'dagi kod bo'lmaydi).
-  **Cheklov (egasining ongli qarori):** tanlov natijasini (`match`) qurilmaga host yuboradi va qurilma uni tekshira olmaydi,
-  undan keyin tugma ham yo'q. Shuning uchun extension va qurilma orasidagi faol MITM yoki buzilgan host o'zini **jismoniy
-  ishtiroksiz** pin qila oladi. Kod (SAS) atigi 2 xona (~6.6 bit) — zaif, faqat foydalanuvchining solishtirishiga tayanadi.
-  Pin qilingan host ham vault'ni **master parolsiz** ocha olmaydi, va har fill/save/delete baribir qurilmada tugma bosishni
-  talab qiladi. "Kod mos kelmadi" chiqqan bo'lsa-yu, OLED'da "Ulandi" ko'rinsa — bu begona ulanish belgisi: begona hostni
-  Sozlamalar → Hostlar bo'limida bekor qiling. Eski firmware (< 1.3.0) bilan pairing boshlanmaydi: extension firmware'ni yangilashni so'raydi.
+- **Engine (offscreen hujjat) qurilma ulanishining egasi.** Brauzer ochiq ekan doim yashaydi, shuning uchun popup yopiq
+  bo'lsa ham taklif va avto-to'ldirish ishlaydi. Web Serial MV3 service worker'da ishonchli emas (~30 s da to'xtatiladi).
+- **Popup va manager — faqat UI.** Engine holatining ko'zgusi (`useDevice`, zustand); amallar engine'ga RPC bilan boradi.
+- **Background** engine'ni yaratadi va offscreen'da yo'q API'larni (`chrome.storage`, `chrome.tabs`, `chrome.idle`) bajaradi.
+- **USB ruxsati** manager sahifasida "USB orqali ulash" bosilganda Chrome tanlash oynasi bilan beriladi (popup va
+  offscreen'da oyna ochilmaydi). Ruxsat bir marta beriladi; kabel qayta ulansa, engine o'zi ulanadi. "Uzish" avto-ulanishni
+  o'chiradi (firmware yuklash uchun port bo'shaydi).
+- **Firmware yangilash** (Sozlamalar → Umumiy → Firmware): release GitHub'dan yuklanadi va **qurilmaga tegmasdan**
+  Ed25519 imzosi hamda har fayl SHA-256'i tekshiriladi. Keyin engine portni bo'shatadi, esptool-js chip nomini solishtiradi
+  va vault bo'limiga tegmay yozadi (qurilmada MD5 tekshiruvi bilan). Eski versiyaga qaytarish rad etiladi. Imzo kaliti
+  `src/shared/api/firmware/signing-key.ts` da; u sozlanmaguncha tugma o'chiq (fail-closed).
 
-## Papkalar (Feature-Sliced Design)
+## Protokol
 
-Qatlamlar yuqoridan pastga: `app > pages > widgets > features > entities > shared`.
-Qatlam faqat o'zidan pastdagini import qiladi; bir qatlamdagi slice'lar bir-birini bilmaydi;
-slice'ga faqat `index.ts` (ochiq API) orqali murojaat qilinadi. Qoidalar `src/fsd.test.ts` da tekshiriladi.
+USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
+Host Noise static public key orqali aniqlanadi; qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
+
+| Versiya | Nima qo'shdi | Firmware |
+|---|---|---|
+| [v0.2](docs/protocol-v0.2.md) | Asos: kanal, juftlash, ro'yxat, parol olish, saqlash | asos |
+| [v0.3](docs/protocol-v0.3.md) | `CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST` | 0.2.0+ |
+| [v0.5](docs/protocol-v0.5.md) | Ommaviy import (`IMPORT_BEGIN`/`IMPORT_END`), bitta tasdiq | 0.4.0+ |
+| [v0.6](docs/protocol-v0.6.md) | Shifrlangan zaxira `EXPORT_*` / `RESTORE_*` | 0.5.0+ |
+| [v0.7](docs/protocol-v0.7.md) | 256 yozuv, sahifalangan `LIST`, `updatedAt`, auto-lock | 1.1.0+ |
+| [v0.8](docs/protocol-v0.8.md) | Maxfiy eslatma | 1.2.0+ |
+| [v0.9](docs/protocol-v0.9.md) | TOTP / 2FA kodlari (`GET_TOTP`) | 1.3.0 (hozirgi) |
+| [v0.10](docs/protocol-v0.10.md) | Qurilmada parol yaratish va tekshirish sozlamalari | 1.3.0 (hozirgi) |
+| [v0.11](docs/protocol-v0.11.md) | Juftlash kodini tasdiqlash (`PAIR_VERIFY`) | 1.3.0+ |
+
+Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`. v0.4 ham `docs/` papkasida.
+
+## Loyiha tuzilmasi
+
+Arxitektura **Feature-Sliced Design**: qatlamlar yuqoridan pastga `app > pages > widgets > features > entities > shared`.
+Qatlam faqat o'zidan pastdagini import qiladi; bir qatlamdagi slice'lar bir-birini bilmaydi; slice'ga faqat `index.ts`
+orqali murojaat qilinadi. Qoidalar `src/fsd.test.ts` da tekshiriladi.
 
 ```
 src/
-  app/        Extension entry'lari (har biri alohida bundle): manager/, popup/, overlay/, background/,
-              content/, engine/ (offscreen: holat mashinasi + hub), styles/globals.css
-  pages/      Marshrut sahifalari: vault, entry-form, settings (umumiy/hostlar/import/xavfsizlik), connect, pair, setup, unlock,
-              popup-vault, popup-connect
+  app/        Entry'lar (har biri alohida bundle): manager, popup, overlay, background, content,
+              engine (offscreen), styles/globals.css
+  pages/      Marshrut sahifalari: vault, entry-form, settings, connect, pair, setup, unlock, popup-*
   widgets/    Katta bloklar: manager-shell, popup-shell, entry-details-dialog, overlay-inline-menu, overlay-save-prompt
   features/   Foydalanuvchi amallari: entry-form, import-entries, backup, change-master-password, manage-hosts,
-              unlock-device, setup-device, pair-device, connect-device, device-session, reveal-credential, fill-credential
-  entities/   Biznes obyektlari: device (store, holat, confirm UI), entry (isSecret, avatar, qidiruv)
-  shared/     ui/ (shadcn + card, segmented, ...), lib/ (utils, domain, errors, kv, hooks),
-              api/ (device protokoli va transportlar, engine xabarlari, messages, overlay-bridge)
+              unlock-device, setup-device, pair-device, connect-device, update-firmware, password-audit, ...
+  entities/   Biznes obyektlari: device (store, holat, tasdiq UI), entry (toifalar, avatar, qidiruv)
+  shared/     ui/ (shadcn/ui), lib/ (utils, domain, kv, errors), api/ (qurilma protokoli, transportlar, engine xabarlari)
 ```
 
-Yangi shadcn komponent: `npx shadcn@latest add dialog`.
+**Texnologiyalar:** React 19, TypeScript, Tailwind v4, shadcn/ui (Radix), React Router 7, React Hook Form, Zod 4, Zustand,
+Vitest. UI komponentlari shadcn'dan olinadi: `npx shadcn@latest add <komponent>`.
 
-## Protokol (v0.2 + v0.3)
+## Dasturchi uchun
 
-USB CDC, 115200. Kadr: `0x00 | COBS(data‖CRC16) | 0x00`. Kanal: `Noise_XX_25519_ChaChaPoly_SHA256`, xabarlar CBOR.
-Host Noise static public key orqali aniqlanadi (`hostId` yo'q); qurilma 4 tagacha hostni pin qiladi, host qurilma kalitini pin qiladi.
-To'liq spetsifikatsiya va test transkripti: [`docs/protocol-v0.2.md`](docs/protocol-v0.2.md). v0.3 boshqaruv buyruqlari (`CHANGE_MASTER`, `UPDATE_ENTRY`, `LIST_HOSTS`, `REVOKE_HOST`; rollarsiz): [`docs/protocol-v0.3.md`](docs/protocol-v0.3.md), firmware ≥ 0.2.0. v0.5 `IMPORT_BEGIN`/`IMPORT_END` (import uchun bitta tasdiq, qolganlari tugmasiz; firmware ≥ 0.4.0): [`docs/protocol-v0.5.md`](docs/protocol-v0.5.md). v0.6 shifrlangan zaxira `EXPORT_*`/`RESTORE_*` (firmware ≥ 0.5.0): [`docs/protocol-v0.6.md`](docs/protocol-v0.6.md). v0.7 sig'im 256, sahifalangan `LIST`, `updatedAt` (`now`), qurilma auto-lock (firmware ≥ 1.1.0): [`docs/protocol-v0.7.md`](docs/protocol-v0.7.md). v0.11 pairing kodini tasdiqlash `PAIR_VERIFY` (firmware ≥ 1.3.0): [`docs/protocol-v0.11.md`](docs/protocol-v0.11.md). Mantiqiy buyruqlar va sxemalar: `src/shared/api/device/protocol.ts`.
+```bash
+pnpm install
+pnpm run dev         # watch rejimida yig'ish
+pnpm run build       # dist/ (tsc + vite)
+pnpm test            # vitest
+npx tsc --noEmit     # tip tekshiruvi
+pnpm run icons       # ikonkalarni qayta yaratish (public/icons/)
+pnpm package         # tsc + test + build, so'ng release/kalit-extension-v<versiya>.zip
+```
 
-**Import:** Manager'dagi Import sahifasi (Bitwarden JSON / CSV) boshlashdan oldin qurilmada bir marta tasdiqlanadi ("N ta yozuv"); shundan keyin barcha yozuvlar tugma bosilmasdan qo'shiladi. Boshqa amallar (parolni olish, o'chirish, yangilash...) har doim alohida tasdiq talab qiladi. Eski firmware'da (< 0.4.0) import ishlamaydi.
-**Zaxira:** Sozlamalar → Zaxira: yozuvlar qurilmada alohida zaxira paroli bilan shifrlanib `kalit-backup-YYYY-MM-DD.kalit` fayliga olinadi va shu paroldan tiklanadi. Zaxira paroli tiklanmaydi — yo'qolsa fayl ochilmaydi. Extension hech qachon ochiq matn parolni ko'rmaydi.
-Firmware: [kalit-firmware](https://github.com/Kalit-Dev/kalit-firmware). Klassik ESP32 DevKit (CP210x/CH340) ham qo'llab-quvvatlanadi.
+- Versiya `package.json` va `public/manifest.json` da **bir xil** bo'lishi shart (`pnpm package` farq bo'lsa to'xtaydi).
+- `src/shared/api/device/interop.test.ts` haqiqiy firmware binari (`../kalit-firmware`, `pio run -e native_app` yoki
+  `$KALIT_FIRMWARE_DIR`) topilsa ishlaydi; topilmasa o'tkazib yuboriladi.
+- CI (`.github/workflows/ci.yml`): `tsc`, testlar, build va zip artifact.
+- Release tartibi: [docs/RELEASING.md](docs/RELEASING.md).
 
-Testlar: `pnpm test` (vitest).
+## Qo'lda tekshirish (QA)
 
-## Keyingi qadamlar (v0.2)
+1. `chrome://extensions` da Kalit'ni **Remove** qiling va `dist/` ni qayta **Load unpacked** qiling.
+2. Serial monitor yoki `pio` ochiq bo'lmasin; qurilmani ulang.
+3. Popup → **USB orqali ulash** → qurilmani tanlang. Master parol bilan oching.
+4. Popup'ni yoping va login formali sahifaga o'ting: maydonga fokus berilganda taklif chiqishi kerak.
+5. Kabelni chiqarib qayta ulang: engine o'zi qayta ulanishi kerak.
+6. Manager'da yozuv qo'shing, tahrirlang, master parolni almashtiring, qulflab qayta oching.
+7. Brauzerni to'liq yopib qayta oching: popup ochilmasdan ham ulanish tiklanishi kerak.
+8. Nosozlik bo'lsa: `chrome://extensions` → Kalit → **Inspect views: offscreen.html** → Console
+   (`[kalit-engine]`, `[kalit-device]`).
 
-- [x] Noise_XX secure channel + CBOR
-- [ ] Parol o'zgarganini aniqlash → "Yangilansinmi?" oqimi
-- [ ] Multi-step login (email → keyingi sahifada parol)
-- [x] Boshqaruv buyruqlari v0.3 + to'liq sahifali manager
-- [ ] Chrome'da qo'lda tekshirish: manager ko'rinishi (yorug'/qorong'i, tor ekran), tab'dan USB ulanish, offscreen'da Web Serial
-- [x] Demo rejim olib tashlandi (`mock-transport.ts` faqat testlar uchun)
+## Yo'l xaritasi
 
-## Ulanishni toza tekshirish (QA)
+- [x] Noise_XX kanali, boshqaruv buyruqlari, to'liq manager sahifasi
+- [x] Import, shifrlangan zaxira, TOTP, maxfiy yozuvlar, imzolangan firmware yangilash
+- [ ] Parol o'zgarganini aniqlash va "Yangilansinmi?" oqimi
+- [ ] Ko'p bosqichli login (email, keyingi sahifada parol)
+- [ ] Chrome'da qo'lda tekshirish: yorug'/qorong'i mavzu, tor ekran, offscreen'da Web Serial
+- [ ] Firmware: flash encryption (apparatda sinalmagan, hozircha kechiktirilgan)
 
-1. Brauzerda `*://extensions` → Kalit → **Remove**, so'ng `dist/` ni **Load unpacked** bilan qayta yuklang.
-2. Serial monitor/`pio` ochiq bo'lmasin. Qurilmani USB'ga ulang.
-3. Popup'ni oching → **USB orqali ulash** → ochilgan tab'da qurilmani tanlang. Popup ulanishi kerak.
-4. Master parol bilan oching. **Popup'ni yoping**, login formali sahifaga o'ting: maydonga fokus berganda taklif chiqishi kerak.
-5. Kabelni chiqarib qayta ulang: engine o'zi qayta ulanishi kerak (popup'ni oching — "Qulflangan"/"Ochiq").
-6. Manager'ni oching (popup'da "Boshqaruvni ochish"): parol qo'shing, tahrirlang, master parolni almashtiring, qulflab qayta oching.
-7. Brauzerni to'liq yoping va qayta oching: popup ochilmasdan ham ulanish tiklanishi kerak.
-8. Nosozlik bo'lsa: `*://extensions` → Kalit → **Inspect views: offscreen.html** → Console (`[kalit-engine]`, `[kalit-device]`).
+## Hujjatlar
+
+[O'rnatish](docs/INSTALL.md) · [Maxfiylik siyosati](docs/PRIVACY.md) · [Ruxsatlar](docs/PERMISSIONS.md) ·
+[Store tavsifi](docs/store-listing.md) · [Release tartibi](docs/RELEASING.md) · [Protokol v0.2](docs/protocol-v0.2.md)
